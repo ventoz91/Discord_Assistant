@@ -1,7 +1,8 @@
 from openai import OpenAI
 from funfunc.image_search import main as search_image
 from funfunc.prompt import GPTSearchPrompt
-from chatbotfunc.utils import fetch_message_history, read_personalities_from_file, async_chat_completion
+from chatbotfunc.utils import fetch_message_history, async_chat_completion
+from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
 import os
 from dotenv import load_dotenv
@@ -29,6 +30,9 @@ load_dotenv()
 # Initialize colorama for colored console output
 init(autoreset=True)
 
+# Initialize the personality manager
+personality_manager = PersonalityManager()
+
 # Global variable to track the game state
 active_games = {}
 
@@ -37,6 +41,9 @@ image_command_used = False
 
 # Global dictionary to store text file content for each channel
 channel_file_contents = {}
+
+# Global variable to store url for last generated image
+last_generated_image_url = None
 
 # Initialize the OpenAI client with your API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -77,16 +84,12 @@ def format_error_message(error):
         # Log the original error and the exception in formatting
         print(f"Error in formatting the error: {e}, Original error: {error}")
         return "An unexpected error occurred in formatting the error."
-
-def add_personality_to_file(new_personality):
-    with open("personalities.env", "a") as file:
-        file.write(f"PERSONALITY{len(behaviours_list) + 1}={new_personality}\n")  
         
-file_behaviours = read_personalities_from_file()
-behaviours_list = file_behaviours
+# Load personalities directly into behaviours_list
+behaviours_list = personality_manager.read_personalities_from_file()
 
 # behaviour variable set
-chatgpt_behaviour = random.choice(behaviours_list)
+chatgpt_behaviour = personality_manager.get_random_personality()
 transform_behaviour = os.getenv("TRANSFORM")
 
 # Determine if the bot should respond to the message
@@ -155,7 +158,6 @@ async def encode_discord_image(image_url):
         print(Fore.RED + f"Error in encode_discord_image: {e}" + Fore.RESET)
         return None
         
-# Analyze an image and return the AI's description
 async def analyze_image(base64_image, instructions):
     payload = {
         "model": "gpt-4-vision-preview",
@@ -163,14 +165,16 @@ async def analyze_image(base64_image, instructions):
         "max_tokens": 300
     }
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {openai_api_key}"}
-    response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
-    response_json = response.json()
-    if 'usage' in response_json:
-        total_tokens = response_json['usage']['total_tokens']
-        print(f"Total Tokens for image description: {total_tokens}")
-    else:
-        print("Token usage information not available for image description.")
-    return response_json
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
+            response_json = await response.json()
+            if 'usage' in response_json:
+                total_tokens = response_json['usage']['total_tokens']
+                print(f"Total Tokens for image description: {total_tokens}")
+            else:
+                print("Token usage information not available for image description.")
+            return response_json
 
 #function for downloading text files sent in chat    
 async def download_text_file(url):
@@ -197,7 +201,13 @@ async def on_reaction_add(reaction, user):
 
 
 @bot.command()
-async def generate(ctx, *, prompt: str):
+async def generate(ctx, *, prompt: str = None):
+    global last_generated_image_url
+
+    if not prompt:
+        await ctx.send("Please provide a prompt for the image generation.")
+        return
+    
     try:
         print(f"Creating image based on: {prompt}")
         async with ctx.typing():
@@ -209,6 +219,7 @@ async def generate(ctx, *, prompt: str):
                 n=1,
             )
             image_url = response.data[0].url
+            last_generated_image_url = image_url
             image_data = requests.get(image_url).content
             image_file = BytesIO(image_data)
             image_file.seek(0)
@@ -235,72 +246,75 @@ async def generate(ctx, *, prompt: str):
         
 @bot.command()
 async def transform(ctx, *, instructions: str):
-    if ctx.message.attachments:
-        attachment = ctx.message.attachments[0]  # Consider the first attachment
-        if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-            async with ctx.typing():  # Show "Bot is typing..." in the channel
-                try:
-                    print(Fore.CYAN + f"Transforming image: {attachment.filename} with instructions: {instructions}" + Fore.RESET)
-                    base64_image = await encode_discord_image(attachment.url)
-                    
-                    # Analyze the image and get its description
-                    description_result = await analyze_image(base64_image, "Describe this image, you give detailed and accurate descriptions, be specific in whatever ways you can, such as but not limited to colors, species, poses, orientations, objects, and contexts.")
-                    if 'choices' in description_result and description_result['choices']:
-                        original_description = description_result['choices'][0].get('message', {}).get('content', '')
-                        if not original_description.strip():
-                            raise ValueError("Failed to generate an original description for the image.")
-                    else:
-                        raise ValueError("Invalid response format from image analysis.")
+    global last_generated_image_url  # Access the global variable
 
-                    print(Fore.BLUE + "Original Description: " + original_description + Fore.RESET)  # Log original description
-                    # Prepare a prompt to integrate the user's instructions into the description
-                    prompt = f"Rewrite the following description to incorporate the given transformation.\n\nOriginal Description: {original_description}\n\nTransformation: {instructions}\n\nTransformed Description:"
-
-                    # Use GPT to rewrite the description
-                    rewriting_result = await async_chat_completion(
-                        model="gpt-4",
-                        messages=[{"role": "system", "content": transform_behaviour},
-                                  {"role": "user", "content": prompt}],
-                        max_tokens=250
-                    )
-                    if rewriting_result.choices:
-                        modified_description = rewriting_result.choices[0].message.content.strip()
-                        print(Fore.GREEN + "Transformed Description: " + modified_description + Fore.RESET)
-                        
-                        # Token usage information
-                        if hasattr(rewriting_result, 'usage') and hasattr(rewriting_result.usage, 'total_tokens'):
-                            total_tokens = rewriting_result.usage.total_tokens
-                            print(f"Total Tokens used for description rewriting: {total_tokens}")
-                        else:
-                            print("No token usage information available for description rewriting.")
-                        
-                    # Generate a new image based on the modified description
-                    response = client.images.generate(
-                        model="dall-e-3",
-                        prompt=modified_description,
-                        size="1024x1024",
-                        quality="standard",
-                        n=1,
-                    )
-                    new_image_url = response.data[0].url
-                    new_image_data = requests.get(new_image_url).content
-                    new_image_file = BytesIO(new_image_data)
-                    new_image_file.seek(0)
-                    new_image_discord = discord.File(fp=new_image_file, filename='transformed_image.png')
-                    await ctx.send(f"Transformed Image:\nOriginal instructions: {instructions}", file=new_image_discord)
-
-                except Exception as e:
-                    formatted_error = format_error_message(e)
-                    await ctx.send(f"An error occurred during the transformation: {formatted_error}")
-                    print(Fore.RED + formatted_error + Fore.RESET)
+    if instructions.startswith("last"):
+        if last_generated_image_url is None:
+            await ctx.send("No previous image found. Use !generate first.")
+            return
+        instructions = instructions[len("last"):].strip()  # Modify the instructions
+        attachment_url = last_generated_image_url  # Use the last image URL
+    elif ctx.message.attachments:
+        attachment = ctx.message.attachments[0]
+        attachment_url = attachment.url
     else:
-        await ctx.send("Please attach an image with the !transform command.")
+        await ctx.send("Please attach an image or use 'last' for the last generated image.")
+        return
+
+    # Proceed with the transformation process using attachment_url
+    async with ctx.typing():
+        try:
+            print(Fore.CYAN + f"Transforming image with instructions: {instructions}" + Fore.RESET)
+            base64_image = await encode_discord_image(attachment_url)
+
+            # Analyze the image and get its description
+            description_result = await analyze_image(base64_image, "Describe this image, give detailed and accurate descriptions...")
+            if 'choices' in description_result and description_result['choices']:
+                original_description = description_result['choices'][0].get('message', {}).get('content', '')
+                if not original_description.strip():
+                    raise ValueError("Failed to generate an original description for the image.")
+            else:
+                raise ValueError("Invalid response format from image analysis.")
+
+            print(Fore.BLUE + "Original Description: " + original_description + Fore.RESET)
+            prompt = f"Rewrite the following description to incorporate the given transformation.\n\nOriginal Description: {original_description}\n\nTransformation: {instructions}\n\nTransformed Description:"
+
+            # Use GPT to rewrite the description
+            rewriting_result = await async_chat_completion(
+                model="gpt-4",
+                messages=[{"role": "system", "content": transform_behaviour},
+                          {"role": "user", "content": prompt}],
+                max_tokens=250
+            )
+
+            if rewriting_result.choices:
+                modified_description = rewriting_result.choices[0].message.content.strip()
+                print(Fore.GREEN + "Transformed Description: " + modified_description + Fore.RESET)
+
+                # Generate a new image based on the modified description
+                response = client.images.generate(
+                    model="dall-e-3",
+                    prompt=modified_description,
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                )
+                new_image_url = response.data[0].url
+                new_image_data = requests.get(new_image_url).content
+                new_image_file = BytesIO(new_image_data)
+                new_image_file.seek(0)
+                new_image_discord = discord.File(fp=new_image_file, filename='transformed_image.png')
+                await ctx.send(f"Transformed Image:\nOriginal instructions: {instructions}", file=new_image_discord)
+
+        except Exception as e:
+            formatted_error = format_error_message(e)
+            await ctx.send(f"An error occurred during the transformation: {formatted_error}")
+            print(Fore.RED + formatted_error + Fore.RESET)
+
     
 @bot.command()
 async def new(ctx, *, new_personality: str):
-    if new_personality not in behaviours_list:
-        behaviours_list.append(new_personality)
-        add_personality_to_file(new_personality)
+    if personality_manager.add_personality(new_personality):
         await ctx.send(f"New personality added: {new_personality}")
     else:
         await ctx.send("This personality already exists.")

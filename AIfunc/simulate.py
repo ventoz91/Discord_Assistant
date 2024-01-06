@@ -1,7 +1,10 @@
 import random
 import asyncio
 from openai import AsyncOpenAI
-from chatbotfunc.utils import fetch_message_history, read_personalities_from_file, get_personality_name
+from chatbotfunc.utils import fetch_message_history
+from chatbotfunc.personalitymanager import PersonalityManager
+
+personality_manager = PersonalityManager()
 
 class ConversationSimulator:
     def __init__(self, openai_api_key, model_chat):
@@ -13,7 +16,7 @@ class ConversationSimulator:
         discord_history = await fetch_message_history(channel, bot, channel_file_contents, include_file_content=True)
 
         # Read personalities from file
-        personalities = read_personalities_from_file()
+        personalities = personality_manager.read_personalities_from_file()
         if len(personalities) < 2:
             return ["Not enough personalities to simulate a conversation."]
 
@@ -26,8 +29,8 @@ class ConversationSimulator:
         else:
             personality_one, personality_two = random.sample(personalities, 2)
 
-        personality_one_name = await get_personality_name(self.model_chat, personality_one)
-        personality_two_name = await get_personality_name(self.model_chat, personality_two)
+        personality_one_name = await personality_manager.get_personality_name(self.model_chat, personality_one)
+        personality_two_name = await personality_manager.get_personality_name(self.model_chat, personality_two)
 
         # Initialize conversation context
         conversation_context = [{"role": "system", "content": f"Let's discuss: {topic}."}]
