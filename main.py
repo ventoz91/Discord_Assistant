@@ -4,6 +4,8 @@ from funfunc.prompt import GPTSearchPrompt
 from chatbotfunc.utils import fetch_message_history, async_chat_completion
 from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
+from gamefunc.minecraft import MinecraftServer
+from gamefunc.valheim import ValheimServer
 import os
 from dotenv import load_dotenv
 import discord
@@ -23,6 +25,7 @@ import subprocess
 import gamefunc.tictactoe as tictactoe
 import aiohttp
 import json
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -44,6 +47,9 @@ channel_file_contents = {}
 
 # Global variable to store url for last generated image
 last_generated_image_url = None
+
+# Initialize Valheim server
+valheim_server = ValheimServer()
 
 # Initialize the OpenAI client with your API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -91,6 +97,10 @@ behaviours_list = personality_manager.read_personalities_from_file()
 # behaviour variable set
 chatgpt_behaviour = personality_manager.get_random_personality()
 transform_behaviour = os.getenv("TRANSFORM")
+
+########################################
+#####Refactor everything below this#####
+########################################
 
 # Determine if the bot should respond to the message
 def should_bot_respond_to_message(message):
@@ -186,7 +196,10 @@ async def download_text_file(url):
                 print(Fore.RED + f"Error downloading text file: HTTP status {response.status}" + Fore.RESET)
                 return None
 
-
+################
+#####events#####
+################
+            
 # Event listener for when the bot is ready
 @bot.event
 async def on_ready():
@@ -196,10 +209,43 @@ async def on_ready():
 async def on_reaction_add(reaction, user):
     # Check if the reaction is on a bot's message and not added by the bot itself
     if reaction.message.author == bot.user and user != bot.user:
-        emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
-        await reaction.message.channel.send(f"You reacted with: {emoji_name}")
+        # Fetch the message history using the utility function
+        messages = await fetch_message_history(reaction.message.channel, bot, channel_file_contents, include_file_content=False)
 
+        # Find the last bot message from the history
+        last_bot_message = next((msg for msg in messages if msg['role'] == 'assistant'), None)
+        
+        if last_bot_message:
+            # Extract the emoji name
+            emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
+            
+            # Prepare the prompt for OpenAI completion
+            prompt = f"{user.display_name} has reacted to your last message with: {emoji_name}. What is your response?"
+            messages += [{"role": "user", "content": prompt}, 
+                         {"role": "assistant", "content": "What is your reply?"}]
 
+            # Generate a response using the same personality as on_message
+            try:
+                max_tokens = int(os.getenv("MAX_TOKENS"))
+                response = await async_chat_completion(
+                    model=os.getenv("MODEL_CHAT"),
+                    messages=messages,
+                    temperature=1.5,
+                    top_p=0.9,
+                    max_tokens=max_tokens
+                )
+                if response.choices:
+                    ai_response = response.choices[0].message.content
+                    await reaction.message.channel.send(ai_response)
+            except Exception as e:
+                formatted_error = format_error_message(e)
+                await reaction.message.channel.send(formatted_error)
+                print(Fore.RED + formatted_error + Fore.RESET)
+
+########################
+#####Image Commands#####
+########################
+                
 @bot.command()
 async def generate(ctx, *, prompt: str = None):
     global last_generated_image_url
@@ -311,7 +357,81 @@ async def transform(ctx, *, instructions: str):
             await ctx.send(f"An error occurred during the transformation: {formatted_error}")
             print(Fore.RED + formatted_error + Fore.RESET)
 
-    
+@bot.command()
+async def image(ctx, *, query: str):
+    try:
+        result = search_image(query)  # Pass 'query' as an argument
+        data = json.loads(result)
+        if "image_url" in data:
+            image_url = data["image_url"]
+            await ctx.send(image_url)
+
+            # Process the image for analysis (if you have this functionality)
+            base64_image = await encode_discord_image(image_url)
+            if base64_image:
+                analysis_result = await analyze_image(base64_image, "Describe this image.")
+                description = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "No description available.")
+                await ctx.send(f"Image Description: {description}")
+            else:
+                await ctx.send("Could not encode image for analysis.")
+        else:
+            await ctx.send("Sorry, no images found.")
+
+    except Exception as e:
+        # Handle exceptions
+        error_message = str(e)
+        await ctx.send(f"Error fetching image: {error_message}")
+        print(f"Error: {error_message}")
+
+@bot.command()
+async def variation(ctx):
+    global last_generated_image_url
+
+    if last_generated_image_url is None:
+        await ctx.send("No previous image found. Use !generate first.")
+        return
+
+    async with ctx.typing():
+        try:
+            # Fetch the image from the URL
+            response = requests.get(last_generated_image_url)
+            image = Image.open(io.BytesIO(response.content))
+
+            # Convert to PNG and ensure the size is less than 4 MB
+            buffered = io.BytesIO()
+            image.save(buffered, format="PNG")
+            buffered.seek(0)  # Reset buffer pointer to the beginning after saving
+
+            # Resize the image if it's too large
+            if buffered.getbuffer().nbytes > 4 * 1024 * 1024:
+                image = image.resize((1024, 1024), Image.ANTIALIAS)
+                buffered = io.BytesIO()
+                image.save(buffered, format="PNG")
+                buffered.seek(0)
+
+            # Create variations using the OpenAI API
+            response = openai.images.create_variation(
+                image=buffered.getvalue(),
+                n=3,
+                size="1024x1024",
+            )
+
+            # Check the structure of the response and extract image data appropriately
+            if hasattr(response, 'data'):
+                for image_data in response.data:
+                    image_bytes = base64.b64decode(image_data["image"])
+                    with io.BytesIO(image_bytes) as image_file:
+                        image_file.seek(0)
+                        discord_file = discord.File(fp=image_file, filename='variation.png')
+                        await ctx.send(file=discord_file)
+
+        except Exception as e:
+            await ctx.send(f"An error occurred: {e}")
+
+##############################
+#####Personality Commands#####    
+##############################
+            
 @bot.command()
 async def new(ctx, *, new_personality: str):
     if personality_manager.add_personality(new_personality):
@@ -343,23 +463,11 @@ async def list(ctx):
 
     # Optionally, delete the temporary file if you don't need it after sending
     os.remove(temp_file_name)
-
-    
-@bot.command()
-async def sandwich(ctx):
-    try:
-        # Run the sandwich.py script and capture its output
-        result = subprocess.run(['python', 'funfunc/sandwich.py'], capture_output=True, text=True, check=True)
-        sandwich_description = result.stdout.strip()
-
-        # Send the output as a message
-        await ctx.send(sandwich_description)
-
-    except subprocess.CalledProcessError as e:
-        # In case of an error during script execution
-        await ctx.send(f"Error generating sandwich: {e}")
-        print(f"Error: {e}")
         
+#######################
+#####Discord Games#####
+#######################
+    
 # Global variable to track the game state in each channel
 active_games = {}
 
@@ -386,33 +494,45 @@ async def game(ctx, player_symbol: str = None):
     finally:
         # Ensure the game state is set to False when the game ends
         active_games[ctx.channel.id] = False
+
+###################################
+#####Minecraft Server Commands#####
+###################################
         
 @bot.command()
-async def image(ctx, *, query: str):
-    try:
-        result = search_image(query)  # Pass 'query' as an argument
-        data = json.loads(result)
-        if "image_url" in data:
-            image_url = data["image_url"]
-            await ctx.send(image_url)
+async def start(ctx, server_type: str):
+    server = MinecraftServer(ctx)
+    await server.start_server(server_type.lower())
 
-            # Process the image for analysis (if you have this functionality)
-            base64_image = await encode_discord_image(image_url)
-            if base64_image:
-                analysis_result = await analyze_image(base64_image, "Describe this image.")
-                description = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "No description available.")
-                await ctx.send(f"Image Description: {description}")
-            else:
-                await ctx.send("Could not encode image for analysis.")
-        else:
-            await ctx.send("Sorry, no images found.")
+@bot.command()
+async def stop(ctx, server_type: str):
+    server = MinecraftServer(ctx)
+    await server.stop_server(server_type.lower())
 
-    except Exception as e:
-        # Handle exceptions
-        error_message = str(e)
-        await ctx.send(f"Error fetching image: {error_message}")
-        print(f"Error: {error_message}")
+@bot.command()
+async def restart(ctx, server_type: str):
+    server = MinecraftServer(ctx)
+    await server.restart_server(server_type.lower())
+
+@bot.command()
+async def players(ctx, server_type: str):
+    server = MinecraftServer(ctx)
+    await server.list_players(server_type.lower())
+
+##########################
+#####Valheim Commands#####
+##########################
         
+@bot.command()
+async def start_valheim(ctx):
+    response = valheim_server.start_server()
+    await ctx.send(response)        
+
+###########################
+######For Fun Commands#####
+###########################
+
+#command will create a prompt for a google search then send a link to the google search
 @bot.command()
 async def prompt(ctx, *, topic: str):
     try:
@@ -427,6 +547,7 @@ async def prompt(ctx, *, topic: str):
         await ctx.send(f"Error: {e}")
         print(f"Error: {e}")
         
+#command will simulate a conversation between two random or two chosen bot personalities
 @bot.command()
 async def simulate(ctx, *args):
     # Default values
@@ -462,8 +583,26 @@ async def simulate(ctx, *args):
             await ctx.send(chunk)
             await asyncio.sleep(delay)
 
+#command creates a random sandwich from set list of ingredients
+@bot.command()
+async def sandwich(ctx):
+    try:
+        # Run the sandwich.py script and capture its output
+        result = subprocess.run(['python', 'funfunc/sandwich.py'], capture_output=True, text=True, check=True)
+        sandwich_description = result.stdout.strip()
 
-        
+        # Send the output as a message
+        await ctx.send(sandwich_description)
+
+    except subprocess.CalledProcessError as e:
+        # In case of an error during script execution
+        await ctx.send(f"Error generating sandwich: {e}")
+        print(f"Error: {e}")
+
+###########################################
+#####MAIN MESSAGE EVENT HANDLING EVENT#####
+###########################################
+                
 @bot.event
 async def on_message(message):
     #initialize global variables
