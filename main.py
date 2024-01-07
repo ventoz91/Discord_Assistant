@@ -526,7 +526,17 @@ async def players(ctx, server_type: str):
 @bot.command()
 async def start_valheim(ctx):
     response = valheim_server.start_server()
-    await ctx.send(response)        
+    await ctx.send(response) 
+
+@bot.command()
+async def stop_valheim(ctx):
+    response = valheim_server.stop_server()
+    await ctx.send(response)     
+
+@bot.command()
+async def valheim_status(ctx):
+    response = valheim_server.server_status()
+    await ctx.send(response)    
 
 ###########################
 ######For Fun Commands#####
