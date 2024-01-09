@@ -47,7 +47,7 @@ image_command_used = False
 # Global dictionary to store text file content for each channel
 channel_file_contents = {}
 
-# Global variable to store url for last generated image
+# Global variable to store url for last generated
 last_generated_image_url = None
 
 # Initialize Valheim server
@@ -64,8 +64,8 @@ openai.api_key = openai_api_key
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
+#bot = discord.Bot(command_prefix='!', intents=intents)
 bot = commands.Bot(command_prefix='!', intents=intents)
-#bot = commands.Bot(command_prefix='!', intents=discord.Intents.default())
 
 # Rate limiting
 RATE_LIMIT = 0.5
@@ -433,14 +433,23 @@ async def variation(ctx):
 
 ##############################
 #####Personality Commands#####    
-##############################
-            
+##############################          
+
+percmd = bot.create_group("personality")
+
 @bot.command()
 async def new(ctx, *, new_personality: str):
     if personality_manager.add_personality(new_personality):
         await ctx.send(f"New personality added: {new_personality}")
     else:
         await ctx.send("This personality already exists.")
+
+@percmd.command(description="create new personality and add to file")
+async def new(ctx, *, str = None):
+    if personality_manager.add_personality(str):
+        await ctx.respond(f"New personality added: {str}")
+    else:
+        await ctx.respond("This personality already exists.")
 
 @bot.command()
 async def change(ctx, choice: int = None):
@@ -451,22 +460,72 @@ async def change(ctx, choice: int = None):
     else:
         chatgpt_behaviour = random.choice(behaviours_list)
         await ctx.send(f"Random behavior selected! New behavior is: {chatgpt_behaviour}")
+
+@percmd.command(description="change personality to one in file '/personality list' for options")
+async def change(ctx, choice: int = None):
+    global chatgpt_behaviour
+    new_behaviours_list = personality_manager.read_personalities_from_file()
+    if choice is not None and 1 <= choice <= len(new_behaviours_list):
+        chatgpt_behaviour = new_behaviours_list[choice - 1]
+        await ctx.respond(f"Behavior changed to: {chatgpt_behaviour}")
+    else:
+        chatgpt_behaviour = random.choice(new_behaviours_list)
+        await ctx.respond(f"Random behavior selected! New behavior is: {chatgpt_behaviour}")
         
+# @bot.command()
+# async def list(ctx):
+#     # Create a temporary file to store the list
+#     updated_behaviours_list = personality_manager.personalities
+#     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_file:
+#         temp_file_name = temp_file.name
+#         for index, behaviour in enumerate(behaviours_list, start=1):
+#             temp_file.write(f"{index}: {behaviour}\n")
+
+#     # Send the file in Discord
+#     with open(temp_file_name, 'rb') as file:
+#         await ctx.send("Available Personalities:", file=discord.File(file, 'personalities_list.txt'))
+
+#     # delete the temporary file
+#     os.remove(temp_file_name)
+
 @bot.command()
 async def list(ctx):
-    # Create a temporary file to store the list
+    # Fetch the updated list of personalities
+    updated_behaviours_list = personality_manager.personalities
+
+    # Create a temporary file to store the updated list
     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_file:
         temp_file_name = temp_file.name
-        for index, behaviour in enumerate(behaviours_list, start=1):
+        # Enumerate and write each personality in the updated list to the file
+        for index, behaviour in enumerate(updated_behaviours_list, start=1):
             temp_file.write(f"{index}: {behaviour}\n")
 
     # Send the file in Discord
     with open(temp_file_name, 'rb') as file:
         await ctx.send("Available Personalities:", file=discord.File(file, 'personalities_list.txt'))
 
-    # Optionally, delete the temporary file if you don't need it after sending
+    # Delete the temporary file
     os.remove(temp_file_name)
-        
+    
+@percmd.command(description="list personalities")
+async def list(ctx):
+    # Fetch the updated list of personalities
+    updated_behaviours_list = personality_manager.personalities
+
+    # Create a temporary file to store the updated list
+    with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_file:
+        temp_file_name = temp_file.name
+        # Enumerate and write each personality in the updated list to the file
+        for index, behaviour in enumerate(updated_behaviours_list, start=1):
+            temp_file.write(f"{index}: {behaviour}\n")
+
+    # Send the file in Discord
+    with open(temp_file_name, 'rb') as file:
+        await ctx.respond("Available Personalities:", file=discord.File(file, 'personalities_list.txt'))
+
+    # Delete the temporary file
+    os.remove(temp_file_name)
+
 #######################
 #####Discord Games#####
 #######################
@@ -643,6 +702,8 @@ async def on_message(message):
     
     # Process any commands that might be part of the message
     await bot.process_commands(message)
+
+    #await bot.run(message)
 
     # Prevent duplicate processing for commands
     if message.content.startswith(bot.command_prefix):
