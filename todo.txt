@@ -1,9 +1,9 @@
 Finish Refactoring for easier continued development
 combine .env and personalities.env
-add reactions to reactions (reaction detection already in place)
+~add reactions to reactions (reaction detection already in place)~
 improve history handling
 possibly add handling for multiple messages at once
-Add commands for modifying and deleting personalities through channel
+Add commands for modifying and ~deleting~ personalities through channel
 Add databases for personalities that allow for storing information
 Allow multiple channels to contribute to database
 Allow differnt personalities per channel
