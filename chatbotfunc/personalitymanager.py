@@ -20,8 +20,30 @@ class PersonalityManager:
             self.personalities.append(new_personality)
             with open(self.filepath, "a") as file:
                 file.write(f"PERSONALITY{len(self.personalities)}={new_personality}\n")
+            self.read_personalities_from_file()
             return True
         return False
+    
+    def remove_personality(self, index):
+        current_personalities = self.read_personalities_from_file()
+        try:
+            adjusted_index = index - 1
+            if 0 <= adjusted_index < len(current_personalities):
+                removed_personality = current_personalities.pop(adjusted_index)
+
+                with open(self.filepath, "w") as file:
+                    for personality in current_personalities:
+                        file.write(f"PERSONALITY={personality}\n")
+                
+                self.personalities = self.read_personalities_from_file()
+
+                return removed_personality
+            else:
+                return None
+        except Exception as e:
+                print(f"Error removing personality: {e}")
+                return None
+
 
     def get_random_personality(self):
         return random.choice(self.personalities)
