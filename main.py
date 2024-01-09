@@ -10,7 +10,7 @@ import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
-from discord import app_commands
+#from discord import app_commands
 #from discord.commands import Option
 import openai
 import random
@@ -435,14 +435,13 @@ async def variation(ctx):
 #####Personality Commands#####    
 ##############################
             
-@bot.command(description="Create new personality and add to list")
+@bot.command()
 async def new(ctx, *, new_personality: str):
     if personality_manager.add_personality(new_personality):
         await ctx.send(f"New personality added: {new_personality}")
     else:
         await ctx.send("This personality already exists.")
 
-@bot.command(name="new")
 @bot.command()
 async def change(ctx, choice: int = None):
     global chatgpt_behaviour
