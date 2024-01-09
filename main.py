@@ -484,22 +484,6 @@ async def change(ctx, choice: int = None):
     else:
         chatgpt_behaviour = random.choice(new_behaviours_list)
         await ctx.respond(f"Random behavior selected! New behavior is: {chatgpt_behaviour}")
-        
-# @bot.command()
-# async def list(ctx):
-#     # Create a temporary file to store the list
-#     updated_behaviours_list = personality_manager.personalities
-#     with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as temp_file:
-#         temp_file_name = temp_file.name
-#         for index, behaviour in enumerate(behaviours_list, start=1):
-#             temp_file.write(f"{index}: {behaviour}\n")
-
-#     # Send the file in Discord
-#     with open(temp_file_name, 'rb') as file:
-#         await ctx.send("Available Personalities:", file=discord.File(file, 'personalities_list.txt'))
-
-#     # delete the temporary file
-#     os.remove(temp_file_name)
 
 @bot.command()
 async def list(ctx):
