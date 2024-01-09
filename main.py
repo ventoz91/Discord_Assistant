@@ -10,6 +10,8 @@ import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+from discord import app_commands
+#from discord.commands import Option
 import openai
 import random
 import time
@@ -63,6 +65,7 @@ intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
+#bot = commands.Bot(command_prefix='!', intents=discord.Intents.default())
 
 # Rate limiting
 RATE_LIMIT = 0.5
@@ -432,13 +435,14 @@ async def variation(ctx):
 #####Personality Commands#####    
 ##############################
             
-@bot.command()
+@bot.command(description="Create new personality and add to list")
 async def new(ctx, *, new_personality: str):
     if personality_manager.add_personality(new_personality):
         await ctx.send(f"New personality added: {new_personality}")
     else:
         await ctx.send("This personality already exists.")
-    
+
+@bot.command(name="new")
 @bot.command()
 async def change(ctx, choice: int = None):
     global chatgpt_behaviour
@@ -518,6 +522,12 @@ async def restart(ctx, server_type: str):
 async def players(ctx, server_type: str):
     server = MinecraftServer(ctx)
     await server.list_players(server_type.lower())
+
+# @bot.slash_command(description="Stops a Minecraft server")
+# async def stop(ctx, 
+#                server_type: Option(str, "Choose server type", choices=["vanilla", "modded"], required=True)):
+#     # Logic to stop the server based on server_type
+#     await ctx.respond(f"Stopping {server_type} server...")
 
 ##########################
 #####Valheim Commands#####
@@ -621,7 +631,7 @@ async def on_message(message):
     
     # Remove source code from chat history at the beginning
     if channel_file_contents.get(message.channel.id):
-        source_code = read_source_code('soupy.py')
+        source_code = read_source_code('main.py')
         if source_code:
             channel_file_contents[message.channel.id] = channel_file_contents[message.channel.id].replace(source_code, "")
             print("Source code removed from chat history, Current history:" + "\n" + channel_file_contents[message.channel.id])
@@ -651,9 +661,9 @@ async def on_message(message):
         return
         
     source_code = None
-    if 'source code' in message.content.lower():
+    if 'main.py' in message.content.lower():
         # Read the source code file
-        source_code = read_source_code('soupy.py')
+        source_code = read_source_code('main.py')
         if source_code:
             # Add source code to chat history
             channel_file_contents[message.channel.id] = source_code + "\n" + channel_file_contents.get(message.channel.id, "")
