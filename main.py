@@ -445,11 +445,24 @@ async def new(ctx, *, new_personality: str):
         await ctx.send("This personality already exists.")
 
 @percmd.command(description="create new personality and add to file")
-async def new(ctx, *, str = None):
-    if personality_manager.add_personality(str):
-        await ctx.respond(f"New personality added: {str}")
+async def new(ctx, *, new_personality = None):
+    if new_personality is None:
+        await ctx.respond("please specify a personality to add.")
+    
+    if personality_manager.add_personality(new_personality):
+        await ctx.respond(f"New personality added: {new_personality}")
     else:
-        await ctx.respond("This personality already exists.")
+        await ctx.respond(f"personality '{new_personality}' already exists.")
+
+@percmd.command(description="remove personality from list")
+async def remove(ctx, *, index: int = None):
+    if index is None:
+        await ctx.respond("please specify a personality to remove.")
+    removed_personality = personality_manager.remove_personality(index)
+    if removed_personality:
+        await ctx.respond(f"Remove Personality: {removed_personality}")
+    else:
+        await ctx.respond(f"Invalid index. Personality could not be found")
 
 @bot.command()
 async def change(ctx, choice: int = None):
