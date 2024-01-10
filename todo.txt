@@ -6,3 +6,4 @@ Add commands for modifying personalities through channel
 Add databases for personalities that allow for storing information
 Allow multiple channels to contribute to database
 Allow differnt personalities per channel
+fix inconsistancy when bot is mentioned (sometimes replies but sometimes will ignore user)
