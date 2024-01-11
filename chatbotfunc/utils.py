@@ -20,3 +20,4 @@ async def fetch_message_history(channel, bot: commands.Bot, channel_file_content
 async def async_chat_completion(*args, **kwargs):
     response = await asyncio.to_thread(openai.chat.completions.create, *args, **kwargs)
     return response
+

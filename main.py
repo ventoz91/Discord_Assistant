@@ -1,4 +1,6 @@
 from openai import OpenAI
+from gtts import gTTS
+from AIfunc.responses import generate_gpt_response
 from funfunc.image_search import main as search_image
 from funfunc.prompt import GPTSearchPrompt
 from chatbotfunc.utils import fetch_message_history, async_chat_completion
@@ -6,10 +8,12 @@ from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
 from gamefunc.minecraft import MinecraftServer
 from gamefunc.valheim import ValheimServer
+from gamefunc.snake import SnakeGame
 import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+import speech_recognition as sr
 #from discord import app_commands
 #from discord.commands import Option
 import openai
@@ -202,7 +206,7 @@ async def download_text_file(url):
 ################
 #####events#####
 ################
-            
+
 # Event listener for when the bot is ready
 @bot.event
 async def on_ready():
@@ -554,6 +558,36 @@ async def game(ctx, player_symbol: str = None):
         # Ensure the game state is set to False when the game ends
         active_games[ctx.channel.id] = False
 
+@bot.command()
+async def snake(ctx):
+    game = SnakeGame()
+
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    game_over = False
+    while not game_over:
+        await ctx.send("```" + game.render() + "```")
+        try:
+            msg = await bot.wait_for('message', check=check, timeout=60.0)
+        except asyncio.TimeoutError:
+            await ctx.send("Game over due to timeout!")
+            break
+
+        content = msg.content.lower()
+        if content == 'w':
+            game.direction = (0, -1)
+        elif content == 's':
+            game.direction = (0, 1)
+        elif content == 'a':
+            game.direction = (-1, 0)
+        elif content == 'd':
+            game.direction = (1, 0)
+
+        game_over = not game.move()
+
+    await ctx.send("Game Over!")
+
 ###################################
 #####Minecraft Server Commands#####
 ###################################
@@ -606,6 +640,24 @@ async def valheim_status(ctx):
 ###########################
 ######For Fun Commands#####
 ###########################
+    
+@bot.command()
+async def join(ctx):
+    # Check if the author is connected to a voice channel
+    if ctx.author.voice is None:
+        await ctx.send("You are not connected to a voice channel.")
+        return
+
+    channel = ctx.author.voice.channel
+    if ctx.voice_client is not None:
+        return await ctx.voice_client.move_to(channel)
+
+    await channel.connect()
+
+# Command to leave a voice channel
+@bot.command()
+async def leave(ctx):
+    await ctx.voice_client.disconnect()
 
 #command will create a prompt for a google search then send a link to the google search
 @bot.command()
@@ -683,6 +735,7 @@ async def on_message(message):
     #initialize global variables
     global channel_file_contents
     global image_command_used
+    global chatgpt_behaviour
     
     # Remove source code from chat history at the beginning
     if channel_file_contents.get(message.channel.id):
@@ -901,6 +954,33 @@ async def on_message(message):
     else:
         print("No conditions met for the bot to respond")
     # Process any commands included in the message
+        
+    # TTS response in voice channel
+    voice_client = discord.utils.get(bot.voice_clients, guild=message.guild)
+    if voice_client and voice_client.is_connected():
+        # Check if the message is not from the bot itself and is a regular text message
+        if message.author != bot.user and not message.content.startswith(bot.command_prefix):
+            try:
+                print("Fetching message history for TTS")
+                message_history = await fetch_message_history(message.channel, bot, channel_file_contents)
+                message_history.append({"role": "user", "content": message.content})
+                print(message_history)
+                print(chatgpt_behaviour)
+                gpt_response = await generate_gpt_response(message_history, chatgpt_behaviour)
+
+                print("Generating TTS from GPT response")
+                tts = gTTS(gpt_response, lang='en')
+                tts_file = 'tts_response.mp3'
+                tts.save(tts_file)
+
+                if not voice_client.is_playing():
+                    print("Playing TTS response in voice channel")
+                    source = discord.FFmpegPCMAudio(executable="ffmpeg", source=tts_file)
+                    voice_client.play(source, after=lambda x: os.remove(tts_file))
+            except Exception as e:
+                print(f"Error in generating or vocalizing GPT response: {e}")
+
+
     await bot.process_commands(message)
 
 # Run the bot with your token
