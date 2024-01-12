@@ -1,6 +1,6 @@
 from openai import OpenAI
 from gtts import gTTS
-from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, analyze_img
+from AIfunc.responses import generate_gpt_response, analyze_image
 from funfunc.image_search import main as search_image
 from funfunc.prompt import GPTSearchPrompt
 from chatbotfunc.utils import fetch_message_history, async_chat_completion
@@ -13,6 +13,7 @@ import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import commands
+import speech_recognition as sr
 import openai
 import random
 import time
@@ -65,6 +66,7 @@ openai.api_key = openai_api_key
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
+#bot = discord.Bot(command_prefix='!', intents=intents)
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # Rate limiting
@@ -171,6 +173,45 @@ async def encode_discord_image(image_url):
         print(Fore.RED + f"Error in encode_discord_image: {e}" + Fore.RESET)
         return None
         
+# async def analyze_image(base64_image, instructions):
+#     payload = {
+#         "model": "gpt-4-vision-preview",
+#         "messages": [{"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
+#         "max_tokens": 300
+#     }
+#     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {openai_api_key}"}
+
+#     async with aiohttp.ClientSession() as session:
+#         async with session.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
+#             response_json = await response.json()
+#             if 'usage' in response_json:
+#                 total_tokens = response_json['usage']['total_tokens']
+#                 print(f"Total Tokens for image description: {total_tokens}")
+#             else:
+#                 print("Token usage information not available for image description.")
+#             return response_json
+    
+# async def analyze_image(base64_image, instructions, message_history, chatgpt_behaviour):
+#     # Prepend the chat behavior and message history to the messages list
+#     messages = [{"role": "system", "content": chatgpt_behaviour}] + message_history
+#     messages.append({"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]})
+
+#     payload = {
+#         "model": "gpt-4-vision-preview",
+#         "messages": messages,
+#         "max_tokens": 300
+#     }
+#     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {openai_api_key}"}
+
+#     async with aiohttp.ClientSession() as session:
+#         async with session.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
+#             response_json = await response.json()
+#             if 'usage' in response_json:
+#                 total_tokens = response_json['usage']['total_tokens']
+#                 print(f"Total Tokens for image description: {total_tokens}")
+#             else:
+#                 print("Token usage information not available for image description.")
+#             return response_json
 
 #function for downloading text files sent in chat    
 async def download_text_file(url):
@@ -190,7 +231,6 @@ async def download_text_file(url):
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}') 
-    print(chatgpt_behaviour)
 
 @bot.event
 async def on_reaction_add(reaction, user):
@@ -232,7 +272,7 @@ async def on_reaction_add(reaction, user):
 ########################
 #####Image Commands#####
 ########################
-        
+                
 @bot.command()
 async def generate(ctx, *, prompt: str = None):
     global last_generated_image_url
@@ -241,33 +281,52 @@ async def generate(ctx, *, prompt: str = None):
         await ctx.send("Please provide a prompt for the image generation.")
         return
     
-    async with ctx.channel.typing():  # Bot starts typing
-        try:
-            image_url = await generate_image(prompt)
-            if image_url:
-                last_generated_image_url = image_url
-                image_data = requests.get(image_url).content
-                image_file = BytesIO(image_data)
-                image_file.seek(0)
-                image_discord = discord.File(fp=image_file, filename='image.png')
-                await ctx.send(f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}", file=image_discord)
-            else:
-                raise ValueError("Failed to generate an image.")
-        except Exception as e:
-            formatted_error = format_error_message(e)
-            await ctx.send(formatted_error)
-            print(Fore.RED + formatted_error + Fore.RESET)
+    try:
+        print(f"Creating image based on: {prompt}")
+        async with ctx.typing():
+            response = client.images.generate(
+                model="dall-e-3",
+                prompt=prompt,
+                size="1024x1024",
+                quality="standard",
+                n=1,
+            )
+            image_url = response.data[0].url
+            last_generated_image_url = image_url
+            image_data = requests.get(image_url).content
+            image_file = BytesIO(image_data)
+            image_file.seek(0)
+            image_discord = discord.File(fp=image_file, filename='image.png')
+
+        await ctx.send(f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}", file=image_discord)
+
+    except openai.BadRequestError as e:
+        # Extracting the relevant error message
+        error_message = str(e)
+        if 'content_policy_violation' in error_message:
+            # Find the start and end of the important message
+            start = error_message.find("'message': '") + len("'message': '")
+            end = error_message.find("', 'param'")
+            important_message = error_message[start:end]
+
+            # Send the extracted message to the channel
+            await ctx.send(f"Error: {important_message}")
+
+    except Exception as e:
+        formatted_error = format_error_message(e)
+        await ctx.send(f"An error occurred during image generation: {formatted_error}")
+        print(Fore.RED + formatted_error + Fore.RESET)
         
 @bot.command()
 async def transform(ctx, *, instructions: str):
-    global last_generated_image_url
+    global last_generated_image_url  # Access the global variable
 
     if instructions.startswith("last"):
         if last_generated_image_url is None:
             await ctx.send("No previous image found. Use !generate first.")
             return
-        instructions = instructions[len("last"):].strip()
-        attachment_url = last_generated_image_url
+        instructions = instructions[len("last"):].strip()  # Modify the instructions
+        attachment_url = last_generated_image_url  # Use the last image URL
     elif ctx.message.attachments:
         attachment = ctx.message.attachments[0]
         attachment_url = attachment.url
@@ -275,10 +334,14 @@ async def transform(ctx, *, instructions: str):
         await ctx.send("Please attach an image or use 'last' for the last generated image.")
         return
 
+    # Proceed with the transformation process using attachment_url
     async with ctx.typing():
         try:
+            print(Fore.CYAN + f"Transforming image with instructions: {instructions}" + Fore.RESET)
             base64_image = await encode_discord_image(attachment_url)
-            description_result = await analyze_img(base64_image, "Describe this image, give detailed and accurate descriptions...")
+
+            # Analyze the image and get its description
+            description_result = await analyze_image(base64_image, "Describe this image, give detailed and accurate descriptions...")
             if 'choices' in description_result and description_result['choices']:
                 original_description = description_result['choices'][0].get('message', {}).get('content', '')
                 if not original_description.strip():
@@ -286,23 +349,36 @@ async def transform(ctx, *, instructions: str):
             else:
                 raise ValueError("Invalid response format from image analysis.")
 
-            prompt = f"Rewrite the following description to incorporate the transformation: {instructions}\n\n{original_description}"
+            print(Fore.BLUE + "Original Description: " + original_description + Fore.RESET)
+            prompt = f"Rewrite the following description to incorporate the given transformation.\n\nOriginal Description: {original_description}\n\nTransformation: {instructions}\n\nTransformed Description:"
+
+            # Use GPT to rewrite the description
             rewriting_result = await async_chat_completion(
                 model="gpt-4",
-                messages=[{"role": "system", "content": transform_behaviour}, {"role": "user", "content": prompt}],
+                messages=[{"role": "system", "content": transform_behaviour},
+                          {"role": "user", "content": prompt}],
                 max_tokens=250
             )
+
             if rewriting_result.choices:
                 modified_description = rewriting_result.choices[0].message.content.strip()
-                new_image_url = await generate_image(modified_description)
-                if new_image_url:
-                    new_image_data = requests.get(new_image_url).content
-                    new_image_file = BytesIO(new_image_data)
-                    new_image_file.seek(0)
-                    new_image_discord = discord.File(fp=new_image_file, filename='transformed_image.png')
-                    await ctx.send(f"Transformed Image:\nOriginal instructions: {instructions}", file=new_image_discord)
-                else:
-                    raise ValueError("Failed to generate a transformed image.")
+                print(Fore.GREEN + "Transformed Description: " + modified_description + Fore.RESET)
+
+                # Generate a new image based on the modified description
+                response = client.images.generate(
+                    model="dall-e-3",
+                    prompt=modified_description,
+                    size="1024x1024",
+                    quality="standard",
+                    n=1,
+                )
+                new_image_url = response.data[0].url
+                new_image_data = requests.get(new_image_url).content
+                new_image_file = BytesIO(new_image_data)
+                new_image_file.seek(0)
+                new_image_discord = discord.File(fp=new_image_file, filename='transformed_image.png')
+                await ctx.send(f"Transformed Image:\nOriginal instructions: {instructions}", file=new_image_discord)
+
         except Exception as e:
             formatted_error = format_error_message(e)
             await ctx.send(f"An error occurred during the transformation: {formatted_error}")
@@ -320,7 +396,7 @@ async def image(ctx, *, query: str):
             image_url = data["image_url"]
             await ctx.send(image_url)
 
-            # Process the image for analysis
+            # Process the image for analysis (if you have this functionality)
             base64_image = await encode_discord_image(image_url)
             if base64_image:
                 analysis_result = await analyze_image(base64_image, "Describe this image.", command_message_history, chatgpt_behaviour)
@@ -507,16 +583,7 @@ async def game(ctx, player_symbol: str = None):
 
 @bot.command()
 async def snake(ctx):
-    global active_games
-
-    # Check if a game is already in progress in this channel
-    if active_games.get(ctx.channel.id, False):
-        await ctx.send("A game is already in progress in this channel.")
-        return
-
     game = SnakeGame()
-    active_games[ctx.channel.id] = True
-    print(active_games)
 
     def check(m):
         return m.author == ctx.author and m.channel == ctx.channel
@@ -527,7 +594,7 @@ async def snake(ctx):
         try:
             msg = await bot.wait_for('message', check=check, timeout=60.0)
         except asyncio.TimeoutError:
-            await ctx.send("Game Timed Out")
+            await ctx.send("Game over due to timeout!")
             break
 
         content = msg.content.lower()
@@ -543,8 +610,6 @@ async def snake(ctx):
         game_over = not game.move()
 
     await ctx.send("Game Over!")
-    active_games[ctx.channel.id] = False
-    print(active_games)
 
 ###################################
 #####Minecraft Server Commands#####
@@ -569,6 +634,12 @@ async def restart(ctx, server_type: str):
 async def players(ctx, server_type: str):
     server = MinecraftServer(ctx)
     await server.list_players(server_type.lower())
+
+# @bot.slash_command(description="Stops a Minecraft server")
+# async def stop(ctx, 
+#                server_type: Option(str, "Choose server type", choices=["vanilla", "modded"], required=True)):
+#     # Logic to stop the server based on server_type
+#     await ctx.respond(f"Stopping {server_type} server...")
 
 ##########################
 #####Valheim Commands#####
@@ -681,6 +752,259 @@ async def sandwich(ctx):
 ###########################################
 #####MAIN MESSAGE EVENT HANDLING EVENT#####
 ###########################################
+                
+# @bot.event
+# async def on_message(message):
+#     #initialize global variables
+#     global channel_file_contents
+#     global image_command_used
+#     global chatgpt_behaviour
+    
+#     # Remove source code from chat history at the beginning
+#     if channel_file_contents.get(message.channel.id):
+#         source_code = read_source_code('main.py')
+#         if source_code:
+#             channel_file_contents[message.channel.id] = channel_file_contents[message.channel.id].replace(source_code, "")
+#             print("Source code removed from chat history, Current history:" + "\n" + channel_file_contents[message.channel.id])
+    
+#     # Initialize local variables
+#     combined_content = message.content
+#     text_file_processed = False
+#     text_file_content = None
+#     should_respond = False 
+    
+#     # Process any commands that might be part of the message
+#     await bot.process_commands(message)
+
+#     #await bot.run(message)
+
+#     # Prevent duplicate processing for commands
+#     if message.content.startswith(bot.command_prefix):
+#         return
+        
+#     # Check if the bot is mentioned in the message
+#     is_mentioned = bot.user in message.mentions
+       
+#     # Ignore messages sent by the bot itself
+#     if message.author == bot.user and not image_command_used:
+#         return
+
+#     # Ignore messages if a game is in progress
+#     if active_games.get(message.channel.id, False):
+#         return
+        
+#     source_code = None
+#     if 'main.py' in message.content.lower():
+#         # Read the source code file
+#         source_code = read_source_code('main.py')
+#         if source_code:
+#             # Add source code to chat history
+#             channel_file_contents[message.channel.id] = source_code + "\n" + channel_file_contents.get(message.channel.id, "")
+#             print(channel_file_contents[message.channel.id])
+        
+#     # Initialize a flag to indicate if the message contains an image
+#     image_processed = False
+
+#     # Check if the message contains any attachments
+#     if message.attachments:
+#         for attachment in message.attachments:
+#             # Check for text files and process them
+#             if attachment.filename.lower().endswith('.txt'):
+#                 text_file_content = await download_text_file(attachment.url)
+#                 if text_file_content:
+#                     combined_content += "\n" + text_file_content
+#                     channel_file_contents[message.channel.id] = text_file_content
+#                     text_file_processed = True
+
+#     # Check if the image was processed, if so, return to avoid duplicate processing
+#     if image_processed:
+#         return
+
+
+#     if text_file_processed or should_respond:
+#         messages = await fetch_message_history(message.channel, bot, channel_file_contents)
+
+#         if text_file_processed:
+#             messages.append({"role": "user", "content": combined_content})
+
+#         messages.append({"role": "assistant", "content": "What is your reply?"})
+
+#         try:
+#             max_tokens = int(os.getenv("MAX_TOKENS"))
+#             response = await async_chat_completion(
+#                 model=os.getenv("MODEL_CHAT"),
+#                 messages=messages,
+#                 temperature=1.5,
+#                 top_p=0.9,
+#                 max_tokens=max_tokens
+#             )
+
+#             if response.choices:
+#                 airesponse = response.choices[0].message.content
+#                 for chunk in split_message(airesponse):
+#                     await message.channel.send(chunk)
+#                     time.sleep(RATE_LIMIT)
+
+#         except Exception as e:
+#             formatted_error = format_error_message(e)
+#             await message.channel.send(formatted_error)
+#             print(Fore.RED + formatted_error + Fore.RESET)        
+
+            
+#     # Determine if the bot should react to this particular message
+#     should_respond = should_bot_respond_to_message(message)
+
+#     # Check if the message is in a channel where the bot responds to all messages
+#     always_respond_channel = message.channel.id in [int(cid) for cid in os.getenv("CHANNEL_IDS", "").split(',')]
+
+#     # Process image analysis only if the bot is mentioned with an image or in a specific channel
+#     if message.attachments and (is_mentioned or always_respond_channel):
+#         for attachment in message.attachments:
+#             if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+#                 async with message.channel.typing():
+#                     try:
+#                         print(Fore.CYAN + f"Processing image: {attachment.filename}" + Fore.RESET)
+#                         base64_image = await encode_discord_image(attachment.url)
+#                         instructions = message.content if message.content else "What’s in this image?"
+#                         analysis_result = await analyze_image(base64_image, instructions)
+#                         response_text = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+#                         if response_text:
+#                             await message.channel.send(response_text)
+#                             print(Fore.MAGENTA + "Image analysis result: " + response_text + Fore.RESET)
+#                         else:
+#                             response_fail_message = "Sorry, I couldn't analyze the image."
+#                             await message.channel.send(response_fail_message)
+#                             print(Fore.YELLOW + response_fail_message + Fore.RESET)
+#                     except Exception as e:
+#                         formatted_error = format_error_message(e)
+#                         await message.channel.send(formatted_error)
+#                         print(Fore.RED + formatted_error + Fore.RESET)
+#         return  # Return after processing images to avoid duplicate responses
+
+#     # Continue with other responses if the bot should respond
+#     if should_respond or text_file_content:
+#         print("Processing response.")
+#         async with message.channel.typing():
+#             messages = await fetch_message_history(message.channel, bot, channel_file_contents)
+#             messages += [{"role": "user", "content": combined_content}, 
+#                          {"role": "assistant", "content": "What is your reply?"}]
+            
+#             # Include text file content if available
+#             if text_file_content:
+#                 messages += [{"role": "user", "content": text_file_content}]
+
+#             messages += [{"role": "assistant", "content": "What is your reply?"}]            
+    
+#         # Initialize variables to store the response
+#         airesponse_chunks = []
+#         response = {}
+#         openai_api_error_occurred = False
+
+#         try:
+#             # Indicate in the Discord channel that the bot is processing a message
+#             async with message.channel.typing():
+#                 # Process and respond to text messages
+#                 messages = await fetch_message_history(message.channel, bot, channel_file_contents)
+#                 messages = [{"role": "system", "content": chatgpt_behaviour}, {"role": "user", "content": "Here is the message history:"}] + messages
+#                 messages += [{"role": "assistant", "content": "What is your reply?"}, {"role": "system", "content": chatgpt_behaviour}]
+            
+#             # Generate a response using the OpenAI API
+#             try:
+#                 max_tokens = int(os.getenv("MAX_TOKENS"))
+#                 response = await async_chat_completion(
+#                     model=os.getenv("MODEL_CHAT"),
+#                     messages=messages,
+#                     temperature=1.5,
+#                     top_p=0.9,
+#                     max_tokens=max_tokens
+#                 )
+#                 if response.choices:
+#                     airesponse = response.choices[0].message.content
+#                     for chunk in split_message(airesponse):
+#                         await message.channel.send(chunk)
+#                         time.sleep(RATE_LIMIT)
+#             except Exception as e:
+#                 print(f"Error generating response: {e}")
+#                 await message.channel.send("An error occurred while generating a response.")
+
+#                 # Log the chat history for debugging
+#                 print('Chat history:')
+#                 for msg in messages:
+#                     print(f'{Fore.GREEN}{msg["role"].capitalize()}: {Fore.YELLOW}{msg["content"]}{Fore.RESET}')
+
+#                 # Set the max_tokens based on the type of response
+#                 max_tokens = int(os.getenv("MAX_TOKENS"))
+
+#                 # Generate a response using the OpenAI API
+#                 response = await async_chat_completion(model=os.getenv("MODEL_CHAT"), messages=messages, temperature=1.5, top_p=0.9, max_tokens=max_tokens)
+#                 # Print the complete API response for debugging
+#                 #print("Complete API Response:", response)
+
+#                 # Extract and print the token usage information
+#                 if hasattr(response, 'usage') and hasattr(response.usage, 'total_tokens'):
+#                     total_tokens = response.usage.total_tokens
+#                     print(f"Total Tokens for text response: {total_tokens}")
+#                 else:
+#                     print("Token usage information not available.")
+
+#                 # Split the AI response into manageable chunks
+#                 airesponse = response.choices[0].message.content
+#                 airesponse_chunks = split_message(airesponse)
+#                 # Introduce a delay based on the response length
+#                 total_sleep_time = RATE_LIMIT * len(airesponse_chunks)
+#                 await asyncio.sleep(total_sleep_time)
+
+#         except openai.OpenAIError as e:
+#             # Log and send OpenAI specific errors
+#             error_msg = f"Error: OpenAI API Error - {e}"
+#             print(Fore.RED + error_msg + Fore.RESET)
+#             airesponse = f"An error has occurred with your request. Please try again. Error details: {e}"
+#             openai_api_error_occurred = True
+#             await message.channel.send(airesponse)
+
+#         except Exception as e:
+#             # Log and send unexpected errors
+#             error_msg = f"Unexpected error: {e}"
+#             print(Fore.RED + error_msg + Fore.RESET)
+#             airesponse = "An unexpected error has occurred."
+
+#         # Send the response in chunks to avoid message limits
+#         if not openai_api_error_occurred:
+#             for chunk in airesponse_chunks:
+#                 await message.channel.send(chunk)
+#                 print(bot.user, ":", Fore.RED + chunk + Fore.RESET)
+#                 time.sleep(RATE_LIMIT)
+#     else:
+#         print("No conditions met for the bot to respond")
+#     # Process any commands included in the message
+        
+#     # TTS response in voice channel
+#     voice_client = discord.utils.get(bot.voice_clients, guild=message.guild)
+#     if voice_client and voice_client.is_connected():
+#         # Check if the message is not from the bot itself and is a regular text message
+#         if message.author != bot.user and not message.content.startswith(bot.command_prefix):
+#             try:
+#                 print("Fetching message history for TTS")
+#                 message_history = await fetch_message_history(message.channel, bot, channel_file_contents)
+#                 message_history.append({"role": "user", "content": message.content})
+#                 print(message_history)
+#                 print(chatgpt_behaviour)
+#                 gpt_response = await generate_gpt_response(message_history, chatgpt_behaviour)
+
+#                 print("Generating TTS from GPT response")
+#                 tts = gTTS(gpt_response, lang='en')
+#                 tts_file = 'tts_response.mp3'
+#                 tts.save(tts_file)
+
+#                 if not voice_client.is_playing():
+#                     print("Playing TTS response in voice channel")
+#                     source = discord.FFmpegPCMAudio(executable="ffmpeg", source=tts_file)
+#                     voice_client.play(source, after=lambda x: os.remove(tts_file))
+#             except Exception as e:
+#                 print(f"Error in generating or vocalizing GPT response: {e}")
+
+
+#     await bot.process_commands(message)
         
 @bot.event
 async def on_message(message):
@@ -705,22 +1029,21 @@ async def on_message(message):
 
     # Check if the message contains an image
     image_processed = False
-    if message.attachments and should_bot_respond_to_message(message):
+    if message.attachments:
         for attachment in message.attachments:
-            async with message.channel.typing():  # Bot starts typing
-                if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    print(f"Processing image: {attachment.filename}")
-                    base64_image = await encode_discord_image(attachment.url)
-                    instructions = message.content if message.content else "What’s in this image?"
-                    message_history = await fetch_message_history(message.channel, bot, channel_file_contents)
-                    analysis_result = await analyze_image(base64_image, instructions, message_history, chatgpt_behaviour)
-                    response_text = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
-                    if response_text:
-                        await message.channel.send(response_text)
-                    else:
-                        await message.channel.send("Sorry, I couldn't analyze the image.")
-                    image_processed = True
-                    break  # Break after processing the first image
+            if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                print(f"Processing image: {attachment.filename}")
+                base64_image = await encode_discord_image(attachment.url)
+                instructions = message.content if message.content else "What’s in this image?"
+                message_history = await fetch_message_history(message.channel, bot, channel_file_contents)
+                analysis_result = await analyze_image(base64_image, instructions, message_history, chatgpt_behaviour)
+                response_text = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                if response_text:
+                    await message.channel.send(response_text)
+                else:
+                    await message.channel.send("Sorry, I couldn't analyze the image.")
+                image_processed = True
+                break  # Break after processing the first image
 
     # If an image was processed, return to avoid further text processing
     if image_processed:
@@ -750,6 +1073,42 @@ async def on_message(message):
             for chunk in split_message(gpt_response):
                 await message.channel.send(chunk)
                 time.sleep(RATE_LIMIT)
+
+    # # Handle image analysis
+    # if message.attachments and (bot.user in message.mentions or message.channel.id in [int(cid) for cid in os.getenv("CHANNEL_IDS", "").split(',')]):
+    #     for attachment in message.attachments:
+    #         if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+    #             print(f"Processing image: {attachment.filename}")
+    #             base64_image = await encode_discord_image(attachment.url)
+    #             instructions = message.content if message.content else "What’s in this image?"
+    #             analysis_result = await analyze_image(base64_image, instructions)
+    #             response_text = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+    #             if response_text:
+    #                 await message.channel.send(response_text)
+    #             else:
+    #                 await message.channel.send("Sorry, I couldn't analyze the image.")
+                
+    # if message.attachments and (bot.user in message.mentions or message.channel.id in [int(cid) for cid in os.getenv("CHANNEL_IDS", "").split(',')]):
+    #     for attachment in message.attachments:
+    #         if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+    #             print(f"Processing image: {attachment.filename}")
+    #             base64_image = await encode_discord_image(attachment.url)
+    #             instructions = message.content if message.content else "What’s in this image?"
+
+    #             # Fetch message history
+    #             message_history = await fetch_message_history(message.channel, bot, channel_file_contents)
+
+    #             print(message_history)
+    #             print(chatgpt_behaviour)
+
+    #             # Call your image analysis function with additional context
+    #             analysis_result = await analyze_image(base64_image, instructions, message_history, chatgpt_behaviour)
+                
+    #             response_text = analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
+    #             if response_text:
+    #                 await message.channel.send(response_text)
+    #             else:
+    #                 await message.channel.send("Sorry, I couldn't analyze the image.")
 
     # TTS response in voice channel
     voice_client = discord.utils.get(bot.voice_clients, guild=message.guild)
