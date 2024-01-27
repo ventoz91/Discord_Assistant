@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Recorder</title>
+</head>
+<body>
+    <button id="startRecord" style="visibility: hidden;">Start Recording</button>
+    <button id="stopRecord" disabled style="visibility: hidden;">Stop Recording</button>
+    <audio id="audioPlayback" controls></audio>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+
+        // Start recording function
+        async function startRecording() {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            mediaRecorder.ondataavailable = event => {
+                audioChunks.push(event.data);
+            };
+            mediaRecorder.start();
+            document.getElementById("stopRecord").disabled = false;
+        }
+
+        // Stop recording function
+        function stopRecording() {
+            mediaRecorder.stop();
+            document.getElementById("stopRecord").disabled = true;
+            mediaRecorder.onstop = async () => {
+                const audioBlob = new Blob(audioChunks, { type: 'audio/ogg' });
+                const audioUrl = URL.createObjectURL(audioBlob);
+                document.getElementById("audioPlayback").src = audioUrl;
+                
+                await sendAudioToServer(audioBlob);
+                audioChunks = [];
+                mediaRecorder = null; // Reset the mediaRecorder for new session
+            };
+        }
+
+        // Add keydown event listener
+        document.addEventListener("keydown", async (event) => {
+            if (event.key === "r" && !mediaRecorder) {
+                await startRecording();
+            }
+        });
+
+        // Add keyup event listener
+        document.addEventListener("keyup", (event) => {
+            if (event.key === "r" && mediaRecorder && mediaRecorder.state === "recording") {
+                stopRecording();
+            }
+        });
+
+        // Existing sendAudioToServer function remains the same
+        async function sendAudioToServer(blob) {
+            const formData = new FormData();
+            formData.append("audioFile", blob, "audio.wav");
+
+            try {
+                const response = await fetch('http://localhost:5000/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                console.log("Audio file sent successfully");
+                const responseText = await response.text();
+                console.log("Server response:", responseText);
+            } catch (error) {
+                console.error("Error sending audio file", error);
+            }
+        }
+    </script>
+</body>
+</html>
+

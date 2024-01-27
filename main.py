@@ -1,9 +1,9 @@
 from openai import OpenAI
 from gtts import gTTS
-from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, analyze_img
+from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, analyze_img, start_monitoring
 from funfunc.image_search import main as search_image
 from funfunc.prompt import GPTSearchPrompt
-from chatbotfunc.utils import fetch_message_history, async_chat_completion
+from chatbotfunc.utils import fetch_message_history, async_chat_completion#, summarize_and_update_history, update_channel_history
 from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
 from gamefunc.minecraft import MinecraftServer
@@ -32,6 +32,13 @@ import requests
 
 # Load environment variables
 load_dotenv()
+
+# Initialize History Directories
+history_directory = 'channel_histories'
+if not os.path.exists(history_directory):
+    os.makedirs(history_directory)
+
+max_history_length = 30
 
 # Initialize colorama for colored console output
 init(autoreset=True)
@@ -190,6 +197,7 @@ async def download_text_file(url):
 @bot.event
 async def on_ready():
     print(f'Logged in as {bot.user.name}') 
+    observer = start_monitoring(bot)
     print(chatgpt_behaviour)
 
 @bot.event
@@ -207,7 +215,7 @@ async def on_reaction_add(reaction, user):
             emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
             
             # Prepare the prompt for OpenAI completion
-            prompt = f"{user.display_name} has reacted to your last message with: {emoji_name}. What is your response?"
+            prompt = f"{user.display_name} has reacted to your last message with: {emoji_name}. What is your response? Stay in character"
             messages += [{"role": "user", "content": prompt}, 
                          {"role": "assistant", "content": "What is your reply?"}]
 
@@ -695,6 +703,14 @@ async def on_message(message):
         return
     if active_games.get(message.channel.id, False):
         return
+    
+    # # Update the message history for the channel
+    # history = update_channel_history(message.channel.id, message.content)
+    
+    # # Check if it's time to summarize and update history
+    # updated_history = summarize_and_update_history(message.channel.id, history)
+
+    #print(updated_history)
 
     # Handle source code exclusion from chat history
     if 'main.py' in message.content.lower():
