@@ -244,6 +244,7 @@ async def on_reaction_add(reaction, user):
 @bot.command()
 async def generate(ctx, *, prompt: str = None):
     global last_generated_image_url
+    global important_message
 
     if not prompt:
         await ctx.send("Please provide a prompt for the image generation.")
@@ -261,6 +262,10 @@ async def generate(ctx, *, prompt: str = None):
                 await ctx.send(f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}", file=image_discord)
             else:
                 raise ValueError("Failed to generate an image.")
+        
+        except openai.BadRequestError as e:
+            print(important_message)
+
         except Exception as e:
             formatted_error = format_error_message(e)
             await ctx.send(formatted_error)

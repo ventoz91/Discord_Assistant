@@ -201,8 +201,21 @@ async def generate_image(prompt, model="dall-e-3", size="1024x1024", quality="st
         )
         image_url = response.data[0].url
         return image_url
+
     except openai.BadRequestError as e:
-        return None, str(e)
+        # Extracting the relevant error message
+        error_message = str(e)
+        if 'content_policy_violation' in error_message:
+            # Find the start and end of the important message
+            start = error_message.find("'message': '") + len("'message': '")
+            end = error_message.find("', 'param'")
+            important_message = error_message[start:end]
+
+            return important_message
+
+            # # Send the extracted message to the channel
+            # await ctx.send(f"Error: {important_message}")
+
     except Exception as e:
         return None
 

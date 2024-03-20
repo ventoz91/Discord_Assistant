@@ -18,7 +18,7 @@ class MinecraftServer:
                 minecraft_dir = r'C:\Users\t_klo\Desktop\Vanilla_Server'
                 jar_file = 'fabric-server-mc.1.20.1-loader.0.14.22-launcher.0.11.2.jar'  # Update this to your server JAR file name
             elif server_type == 'modded':
-                minecraft_dir = r'C:\Users\t_klo\Desktop\All+of+Fabric+7-Server-0.5.2'
+                minecraft_dir = r'C:\Users\t_klo\Desktop\ATM9'
                 jar_file = 'serverstarter-2.4.0.jar'  # Update this to your modded server JAR file name
             else:
                 await self.ctx.send("Invalid server type. Please use 'vanilla' or 'modded'.")
@@ -27,7 +27,7 @@ class MinecraftServer:
             java_command = f'java -Xmx6G -jar {jar_file} nogui'
             full_command = f'cmd.exe /c "cd /d {minecraft_dir} && start cmd.exe /k {java_command}"'
             modded_javacommand = f'java -jar {jar_file}'
-            full_modded = f'cmd.exe /c "cd /d {minecraft_dir} && start cmd.exe /k {modded_javacommand}"'
+            full_modded = f'cmd.exe /c "cd /d {minecraft_dir} && start cmd.exe /k startserver.bat"'
             # Change the working directory and execute the command
             os.chdir(minecraft_dir)
             if server_type == 'vanilla':
