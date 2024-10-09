@@ -7,7 +7,7 @@ from chatbotfunc.utils import fetch_message_history, async_chat_completion#, sum
 from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
 from gamefunc.minecraft import MinecraftServer
-from gamefunc.valheim import ValheimServer
+from gamefunc.valheim import ValheimServer, EnshroudedServer
 from gamefunc.snake import SnakeGame
 import os
 from dotenv import load_dotenv
@@ -58,8 +58,9 @@ channel_file_contents = {}
 # Global variable to store url for last generated
 last_generated_image_url = None
 
-# Initialize Valheim server
+# Initialize Game servers
 valheim_server = ValheimServer()
+enshrouded_server = EnshroudedServer()
 
 # Initialize the OpenAI client with your API key
 openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -105,7 +106,9 @@ def format_error_message(error):
 behaviours_list = personality_manager.read_personalities_from_file()
 
 # behaviour variable set
-chatgpt_behaviour = personality_manager.get_random_personality()
+personality = os.getenv("PERSONALITY")
+chatgpt_behaviour = personality
+#chatgpt_behaviour = personality_manager.get_random_personality()
 transform_behaviour = os.getenv("TRANSFORM")
 
 ########################################
@@ -301,7 +304,7 @@ async def transform(ctx, *, instructions: str):
 
             prompt = f"Rewrite the following description to incorporate the transformation: {instructions}\n\n{original_description}"
             rewriting_result = await async_chat_completion(
-                model="gpt-4",
+                model="gpt-4o",
                 messages=[{"role": "system", "content": transform_behaviour}, {"role": "user", "content": prompt}],
                 max_tokens=250
             )
@@ -441,13 +444,33 @@ async def change(ctx, choice: int = None):
 @percmd.command(description="change personality to one in file '/personality list' for options")
 async def change(ctx, choice: int = None):
     global chatgpt_behaviour
-    new_behaviours_list = personality_manager.read_personalities_from_file()
+    new_behaviours_list = personality_manager.personalities
     if choice is not None and 1 <= choice <= len(new_behaviours_list):
         chatgpt_behaviour = new_behaviours_list[choice - 1]
         await ctx.respond(f"Behavior changed to: {chatgpt_behaviour}")
+
+        # Update PERSONALITY in .env file
+        with open(".env", "r") as file:
+            lines = file.readlines()
+        with open(".env", "w") as file:
+            for line in lines:
+                if line.startswith("PERSONALITY="):
+                    file.write(f"PERSONALITY={chatgpt_behaviour}\n")
+                else:
+                    file.write(line)
     else:
         chatgpt_behaviour = random.choice(new_behaviours_list)
         await ctx.respond(f"Random behavior selected! New behavior is: {chatgpt_behaviour}")
+
+        # Update PERSONALITY in .env file
+        with open(".env", "r") as file:
+            lines = file.readlines()
+        with open(".env", "w") as file:
+            for line in lines:
+                if line.startswith("PERSONALITY="):
+                    file.write(f"PERSONALITY={chatgpt_behaviour}\n")
+                else:
+                    file.write(line)
 
 @bot.command()
 async def list(ctx):
@@ -600,7 +623,22 @@ async def stop_valheim(ctx):
 @bot.command()
 async def valheim_status(ctx):
     response = valheim_server.server_status()
-    await ctx.send(response)    
+    await ctx.send(response) 
+
+##########################
+#####Enshrouded Commands#####
+##########################
+        
+@bot.command()
+async def start_enshrouded(ctx):
+    response = enshrouded_server.start_server()
+    await ctx.send(response) 
+
+@bot.command()
+async def stop_enshrouded(ctx):
+    response = enshrouded_server.stop_server('enshrouded_server.exe')
+    await ctx.send(response)     
+
 
 ###########################
 ######For Fun Commands#####
@@ -690,6 +728,20 @@ async def sandwich(ctx):
         # In case of an error during script execution
         await ctx.send(f"Error generating sandwich: {e}")
         print(f"Error: {e}")
+
+###########################
+######testing Commands#####
+###########################
+
+
+class MyView(discord.ui.View): # Create a class called MyView that subclasses discord.ui.View
+    @discord.ui.button(label="Click me!", style=discord.ButtonStyle.primary, emoji="😎") # Create a button with the label "😎 Click me!" with color Blurple
+    async def button_callback(self, button, interaction):
+        await interaction.response.send_message("You clicked the button!") # Send a message when the button is clicked
+
+@bot.command() # Create a command
+async def button(ctx):
+    await ctx.send("This is a button!", view=MyView()) # Send a message with our View class that contains the button
 
 ###########################################
 #####MAIN MESSAGE EVENT HANDLING EVENT#####

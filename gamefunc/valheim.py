@@ -71,3 +71,29 @@ class ValheimServer:
             return "Valheim server is currently running!"
         else:
             return "Valheim server is not running."
+
+
+class EnshroudedServer:
+
+    def start_server(self):
+        exe_path = f"I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe"
+
+        subprocess.Popen([exe_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
+
+        return f"Enshrouded server starting..."
+    
+    def stop_server(self, task_name):
+        # Check if the task is running
+        try:
+            # This command lists the tasks and finds the task_name in the list
+            subprocess.check_call(['tasklist', '/FI', f'IMAGENAME eq {task_name}'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # If the above command doesn't throw an exception, the task is running and can be killed
+            subprocess.check_call(['taskkill', '/F', '/IM', task_name])
+            return f"Task {task_name} has been successfully terminated."
+        except subprocess.CalledProcessError:
+            # The task is not running
+            return f"No task named {task_name} is currently running."
+
+    # # Replace 'enshrouded_server.exe' with the name of your server executable if different
+    # stop_server('enshrouded_server.exe')
+    

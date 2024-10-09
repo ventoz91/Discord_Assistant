@@ -155,7 +155,7 @@ async def analyze_image(base64_image, instructions, message_history, chatgpt_beh
     messages.append({"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]})
 
     payload = {
-        "model": "gpt-4-vision-preview",
+        "model": "gpt-4o",
         "messages": messages,
         "max_tokens": 300
     }
@@ -174,7 +174,7 @@ async def analyze_image(base64_image, instructions, message_history, chatgpt_beh
 #For Analyzing images when personality and chat history is not needed
 async def analyze_img(base64_image, instructions):
     payload = {
-        "model": "gpt-4-vision-preview",
+        "model": "gpt-4o",
         "messages": [{"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
         "max_tokens": 300
     }
