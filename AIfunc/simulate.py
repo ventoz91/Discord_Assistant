@@ -54,7 +54,7 @@ class ConversationSimulator:
                 messages=prompt,
                 temperature=1.5,
                 top_p=0.9,
-                max_tokens=150
+                max_completion_tokens=150
             )
             gpt_reply = response.choices[0].message.content.strip()
             conversation_context.append({"role": "user", "content": f"{gpt_reply}"})

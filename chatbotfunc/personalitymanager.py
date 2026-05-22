@@ -62,7 +62,7 @@ class PersonalityManager:
             messages=[{"role": "system", "content": prompt}],
             temperature=temperature,
             top_p=0.9,
-            max_tokens=10
+            max_completion_tokens=10
         )
         # Extracting and returning the GPT response (name)
         return response.choices[0].message.content.strip()
