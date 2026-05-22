@@ -76,7 +76,7 @@ class ValheimServer:
 class EnshroudedServer:
 
     def start_server(self):
-        exe_path = f"I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe"
+        exe_path = r"I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe"
 
         subprocess.Popen([exe_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
 

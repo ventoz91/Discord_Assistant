@@ -29,6 +29,7 @@ import gamefunc.tictactoe as tictactoe
 import aiohttp
 import json
 import requests
+import re
 
 # Load environment variables
 load_dotenv()
@@ -137,27 +138,197 @@ def should_bot_respond_to_message(message):
     return (bot.user in message.mentions or message.channel.id in allowed_channel_ids)
 
 
-# Split message into chunks of a specified maximum length
-def split_message(message_content, max_length=1500):
+# # Split message into chunks of a specified maximum length
+# def split_message(message_content, max_length=1500):
+#     if len(message_content) <= max_length:
+#         return [message_content]
+
+#     # Splitting at sentence boundaries for better readability
+#     sentences = message_content.split(". ")
+#     chunks = []
+#     current_chunk = ""
+
+#     for sentence in sentences:
+#         if len(current_chunk) + len(sentence) < max_length:
+#             current_chunk += sentence + ". "
+#         else:
+#             chunks.append(current_chunk)
+#             current_chunk = sentence + ". "
+
+#     if current_chunk:
+#         chunks.append(current_chunk)
+
+#     return chunks
+
+def split_message(message_content, max_length=1995):
+    if not message_content.strip():
+        return []
+
     if len(message_content) <= max_length:
         return [message_content]
 
-    # Splitting at sentence boundaries for better readability
-    sentences = message_content.split(". ")
     chunks = []
+    # Split into alternating plain-text and code-block parts
+    parts = re.split(r'(```[\s\S]*?```)', message_content)
     current_chunk = ""
 
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) < max_length:
-            current_chunk += sentence + ". "
-        else:
-            chunks.append(current_chunk)
-            current_chunk = sentence + ". "
+    for part in parts:
+        if not part:
+            continue
 
-    if current_chunk:
-        chunks.append(current_chunk)
+        if part.startswith("```") and part.endswith("```"):
+            # Complete code block
+            if len(part) <= max_length:
+                if len(current_chunk) + len(part) + 1 <= max_length:
+                    current_chunk += ("\n" if current_chunk else "") + part
+                else:
+                    if current_chunk.strip():
+                        chunks.append(current_chunk.strip())
+                    current_chunk = part
+            else:
+                # Code block too big — split by lines, re-wrapping each chunk
+                if current_chunk.strip():
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                inner = part[3:-3]
+                first_newline = inner.find('\n')
+                if first_newline != -1:
+                    lang = inner[:first_newline]
+                    code_content = inner[first_newline + 1:]
+                else:
+                    lang = ""
+                    code_content = inner
+                overhead = len(f"```{lang}\n") + len("\n```")
+                lines = code_content.splitlines()
+                code_chunk_lines = []
+                code_chunk_len = 0
+                for line in lines:
+                    line_len = len(line) + 1  # +1 for \n
+                    if code_chunk_len + line_len <= max_length - overhead:
+                        code_chunk_lines.append(line)
+                        code_chunk_len += line_len
+                    else:
+                        if code_chunk_lines:
+                            chunks.append(f"```{lang}\n" + "\n".join(code_chunk_lines) + "\n```")
+                        code_chunk_lines = [line]
+                        code_chunk_len = line_len
+                if code_chunk_lines:
+                    chunks.append(f"```{lang}\n" + "\n".join(code_chunk_lines) + "\n```")
+        else:
+            # Plain text — split by sentences
+            for sentence in re.split(r'(?<=\.)\s+', part):
+                if not sentence:
+                    continue
+                if len(sentence) > max_length:
+                    if current_chunk.strip():
+                        chunks.append(current_chunk.strip())
+                        current_chunk = ""
+                    while len(sentence) > max_length:
+                        chunks.append(sentence[:max_length])
+                        sentence = sentence[max_length:]
+                    current_chunk = sentence
+                elif len(current_chunk) + len(sentence) + 1 <= max_length:
+                    current_chunk += (" " if current_chunk else "") + sentence
+                else:
+                    if current_chunk.strip():
+                        chunks.append(current_chunk.strip())
+                    current_chunk = sentence
+
+    if current_chunk.strip():
+        chunks.append(current_chunk.strip())
 
     return chunks
+
+# def split_message(message_content, max_length=1995):
+#     if not message_content.strip():
+#         return []
+
+#     if len(message_content) <= max_length:
+#         return [message_content]
+
+#     chunks = []
+#     code_block_pattern = re.compile(r"(```[\s\S]*?```)", re.MULTILINE)
+#     parts = code_block_pattern.split(message_content)
+
+#     current_chunk = ""
+
+#     for part in parts:
+#         part = part.strip()
+#         if not part:
+#             continue
+
+#         if part.startswith("```") and part.endswith("```"):
+#             # It's a code block
+#             if len(part) <= max_length:
+#                 if len(current_chunk) + len(part) + 2 <= max_length:
+#                     current_chunk += part + "\n\n"
+#                 else:
+#                     if current_chunk.strip():
+#                         chunks.append(current_chunk.strip())
+#                     chunks.append(part)
+#                     current_chunk = ""
+#             else:
+#                 # Too long code block — split within
+#                 code_inside = part[3:-3].strip()
+#                 code_lines = code_inside.splitlines()
+#                 code_chunk = ""
+#                 for line in code_lines:
+#                     if len(code_chunk) + len(line) + 1 <= max_length - 6:  # room for wrapping ```
+#                         code_chunk += line + "\n"
+#                     else:
+#                         chunks.append(f"```\n{code_chunk.strip()}\n```")
+#                         code_chunk = line + "\n"
+#                 if code_chunk.strip():
+#                     chunks.append(f"```\n{code_chunk.strip()}\n```")
+#         else:
+#             # It's plain text — try to merge or split by sentence/function
+#             if len(part) <= max_length:
+#                 if len(current_chunk) + len(part) + 2 <= max_length:
+#                     current_chunk += part + "\n\n"
+#                 else:
+#                     if current_chunk.strip():
+#                         chunks.append(current_chunk.strip())
+#                     current_chunk = part + "\n\n"
+#             else:
+#                 # Fallback split by function or sentence
+#                 split_parts = re.split(r'(?=^def\s)', part, flags=re.MULTILINE)
+#                 for section in split_parts:
+#                     section = section.strip()
+#                     if not section:
+#                         continue
+#                     if len(section) <= max_length:
+#                         if len(current_chunk) + len(section) + 2 <= max_length:
+#                             current_chunk += section + "\n\n"
+#                         else:
+#                             if current_chunk.strip():
+#                                 chunks.append(current_chunk.strip())
+#                             current_chunk = section + "\n\n"
+#                     else:
+#                         # Final fallback: sentence split
+#                         sentences = section.split(". ")
+#                         for sentence in sentences:
+#                             sentence = sentence.strip()
+#                             if len(sentence) > max_length:
+#                                 while len(sentence) > max_length:
+#                                     chunks.append(sentence[:max_length])
+#                                     sentence = sentence[max_length:]
+#                                 if sentence:
+#                                     chunks.append(sentence)
+#                             else:
+#                                 if len(current_chunk) + len(sentence) + 2 <= max_length:
+#                                     current_chunk += sentence + ". "
+#                                 else:
+#                                     if current_chunk.strip():
+#                                         chunks.append(current_chunk.strip())
+#                                     current_chunk = sentence + ". "
+#                         if current_chunk.strip():
+#                             chunks.append(current_chunk.strip())
+#                             current_chunk = ""
+
+#     if current_chunk.strip():
+#         chunks.append(current_chunk.strip())
+
+#     return chunks
     
 def read_source_code(file_path):
     try:
@@ -230,7 +401,7 @@ async def on_reaction_add(reaction, user):
                     messages=messages,
                     temperature=1.5,
                     top_p=0.9,
-                    max_tokens=max_tokens
+                    max_completion_tokens=max_tokens
                 )
                 if response.choices:
                     ai_response = response.choices[0].message.content
@@ -247,28 +418,33 @@ async def on_reaction_add(reaction, user):
 @bot.command()
 async def generate(ctx, *, prompt: str = None):
     global last_generated_image_url
-    global important_message
 
     if not prompt:
         await ctx.send("Please provide a prompt for the image generation.")
         return
-    
-    async with ctx.channel.typing():  # Bot starts typing
-        try:
-            image_url = await generate_image(prompt)
-            if image_url:
-                last_generated_image_url = image_url
-                image_data = requests.get(image_url).content
-                image_file = BytesIO(image_data)
-                image_file.seek(0)
-                image_discord = discord.File(fp=image_file, filename='image.png')
-                await ctx.send(f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}", file=image_discord)
-            else:
-                raise ValueError("Failed to generate an image.")
-        
-        except openai.BadRequestError as e:
-            print(important_message)
 
+    async with ctx.channel.typing():
+        try:
+            image_bytes = await generate_image(prompt)
+
+            if isinstance(image_bytes, str):
+                # generate_image returned a content policy message, not image data
+                await ctx.send(f"Could not generate image: {image_bytes}")
+                return
+
+            if not image_bytes:
+                raise ValueError("Failed to generate an image.")
+
+            last_generated_image_url = None  # no URL anymore; store bytes or a path if needed
+
+            image_file = discord.File(fp=BytesIO(image_bytes), filename="image.png")
+            await ctx.send(
+                f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}",
+                file=image_file,
+            )
+
+        except openai.BadRequestError as e:
+            await ctx.send(f"Request rejected: {e}")
         except Exception as e:
             formatted_error = format_error_message(e)
             await ctx.send(formatted_error)
@@ -306,7 +482,7 @@ async def transform(ctx, *, instructions: str):
             rewriting_result = await async_chat_completion(
                 model="gpt-4o",
                 messages=[{"role": "system", "content": transform_behaviour}, {"role": "user", "content": prompt}],
-                max_tokens=250
+                max_completion_tokens=250
             )
             if rewriting_result.choices:
                 modified_description = rewriting_result.choices[0].message.content.strip()
@@ -755,6 +931,8 @@ async def on_message(message):
     # Prevent processing if the message is from the bot or a command
     if message.author == bot.user:
         return
+    #if message.author == bot.user and not message.content.startswith("!generate"):
+    #    return
     if message.content.startswith(bot.command_prefix):
         await bot.process_commands(message)
         return

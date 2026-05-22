@@ -10,6 +10,9 @@ import aiofiles
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from gtts import gTTS
+import base64
+from dotenv import load_dotenv
+load_dotenv()
 
 # Initialize the OpenAI client with your API key
 openai_api_key = os.environ["OPENAI_API_KEY"]
@@ -114,16 +117,17 @@ class NewRecordingHandler(FileSystemEventHandler):
 
 # Function to initiate monitoring
 def start_monitoring(bot):
+    os.makedirs('./recordings', exist_ok=True)
     event_handler = NewRecordingHandler(bot)
     observer = Observer()
-    observer.schedule(event_handler, r'.\recordings', recursive=False)
+    observer.schedule(event_handler, './recordings', recursive=False)
     observer.start()
     return observer
 
 #Genereate gpt response with chat history and current behaviour
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_tokens=None, temperature=1.5, top_p=0.9):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9):
     # Load the max tokens from environment if not provided
-    max_tokens = max_tokens or int(os.getenv("MAX_TOKENS"))
+    max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS"))
 
     # Prepare the messages, including the system behavior message
     messages = [{"role": "system", "content": chatgpt_behaviour}] + message_history
@@ -135,7 +139,7 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_tokens=N
             messages=messages,
             temperature=temperature,
             top_p=top_p,
-            max_tokens=max_tokens
+            max_completion_tokens=max_tokens
         )
 
         if response.choices:
@@ -155,9 +159,10 @@ async def analyze_image(base64_image, instructions, message_history, chatgpt_beh
     messages.append({"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]})
 
     payload = {
-        "model": "gpt-4o",
+#        "model": "chatgpt-4o-latest"
+        "model": "gpt-5.4",
         "messages": messages,
-        "max_tokens": 300
+        "max_completion_tokens": 300
     }
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {openai_api_key}"}
 
@@ -174,9 +179,9 @@ async def analyze_image(base64_image, instructions, message_history, chatgpt_beh
 #For Analyzing images when personality and chat history is not needed
 async def analyze_img(base64_image, instructions):
     payload = {
-        "model": "gpt-4o",
+        "model": "gpt-5.4",
         "messages": [{"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}],
-        "max_tokens": 300
+        "max_completion_tokens": 300
     }
     headers = {"Content-Type": "application/json", "Authorization": f"Bearer {openai_api_key}"}
 
@@ -189,34 +194,35 @@ async def analyze_img(base64_image, instructions):
             else:
                 print("Token usage information not available for image description.")
             return response_json
-        
-async def generate_image(prompt, model="dall-e-3", size="1024x1024", quality="standard", n=1):
+
+async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality="medium", n=1):
     try:
         response = client.images.generate(
             model=model,
             prompt=prompt,
             size=size,
-            quality=quality,
+            quality=quality,  # must be "low", "medium", or "high"
             n=n,
         )
-        image_url = response.data[0].url
-        return image_url
+
+        # gpt-image-1/2 always returns b64_json, never a URL
+        image_b64 = response.data[0].b64_json
+        if not image_b64:
+            return None
+
+        image_bytes = base64.b64decode(image_b64)
+        return image_bytes  # return raw bytes; save to file or convert to data URL as needed
 
     except openai.BadRequestError as e:
-        # Extracting the relevant error message
         error_message = str(e)
         if 'content_policy_violation' in error_message:
-            # Find the start and end of the important message
             start = error_message.find("'message': '") + len("'message': '")
             end = error_message.find("', 'param'")
-            important_message = error_message[start:end]
-
-            return important_message
-
-            # # Send the extracted message to the channel
-            # await ctx.send(f"Error: {important_message}")
+            return error_message[start:end]
+        return f"Bad request: {error_message}"
 
     except Exception as e:
+        print(f"Image generation error: {e}")  # log it so you can actually see failures
         return None
 
 # async def process_voice(voice):
