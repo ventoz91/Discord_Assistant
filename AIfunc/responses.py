@@ -197,11 +197,12 @@ async def analyze_img(base64_image, instructions):
 
 async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality="medium", n=1):
     try:
-        response = client.images.generate(
+        response = await asyncio.to_thread(
+            client.images.generate,
             model=model,
             prompt=prompt,
             size=size,
-            quality=quality,  # must be "low", "medium", or "high"
+            quality=quality,
             n=n,
         )
 
@@ -214,12 +215,12 @@ async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality=
         return image_bytes  # return raw bytes; save to file or convert to data URL as needed
 
     except openai.BadRequestError as e:
-        error_message = str(e)
-        if 'content_policy_violation' in error_message:
-            start = error_message.find("'message': '") + len("'message': '")
-            end = error_message.find("', 'param'")
-            return error_message[start:end]
-        return f"Bad request: {error_message}"
+        try:
+            detail = e.response.json()
+            msg = detail.get('error', {}).get('message', str(e))
+        except Exception:
+            msg = str(e)
+        return msg
 
     except Exception as e:
         print(f"Image generation error: {e}")  # log it so you can actually see failures

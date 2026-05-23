@@ -82,7 +82,7 @@ RATE_LIMIT = 0.5
 def format_error_message(error):
     try:
         # Check for OpenAI specific errors
-        if isinstance(error, openai.error.OpenAIError):
+        if isinstance(error, openai.OpenAIError):
             return f"OpenAI Error: {str(error)}"
 
         # Handling HTTP request errors
