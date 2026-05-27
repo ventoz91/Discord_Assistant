@@ -1,9 +1,9 @@
 from openai import OpenAI
 from gtts import gTTS
-from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, analyze_img, start_monitoring
+from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, transform_image, start_monitoring
 from funfunc.image_search import main as search_image
 from funfunc.prompt import GPTSearchPrompt
-from chatbotfunc.utils import fetch_message_history, async_chat_completion#, summarize_and_update_history, update_channel_history
+from chatbotfunc.utils import fetch_message_history, async_chat_completion
 from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
 from gamefunc.minecraft import MinecraftServer
@@ -28,18 +28,10 @@ import subprocess
 import gamefunc.tictactoe as tictactoe
 import aiohttp
 import json
-import requests
 import re
 
 # Load environment variables
 load_dotenv()
-
-# Initialize History Directories
-history_directory = 'channel_histories'
-if not os.path.exists(history_directory):
-    os.makedirs(history_directory)
-
-max_history_length = 30
 
 # Initialize colorama for colored console output
 init(autoreset=True)
@@ -50,14 +42,11 @@ personality_manager = PersonalityManager()
 # Global variable to track the game state
 active_games = {}
 
-# Global variable to track if !image command was used
-image_command_used = False
-
 # Global dictionary to store text file content for each channel
 channel_file_contents = {}
 
-# Global variable to store url for last generated
-last_generated_image_url = None
+# Global variable to store bytes of last generated image
+last_generated_image_bytes = None
 
 # Initialize Game servers
 valheim_server = ValheimServer()
@@ -109,12 +98,6 @@ behaviours_list = personality_manager.read_personalities_from_file()
 # behaviour variable set
 personality = os.getenv("PERSONALITY")
 chatgpt_behaviour = personality
-#chatgpt_behaviour = personality_manager.get_random_personality()
-transform_behaviour = os.getenv("TRANSFORM")
-
-########################################
-#####Refactor everything below this#####
-########################################
 
 # Determine if the bot should respond to the message
 def should_bot_respond_to_message(message):
@@ -137,28 +120,6 @@ def should_bot_respond_to_message(message):
 
     return (bot.user in message.mentions or message.channel.id in allowed_channel_ids)
 
-
-# # Split message into chunks of a specified maximum length
-# def split_message(message_content, max_length=1500):
-#     if len(message_content) <= max_length:
-#         return [message_content]
-
-#     # Splitting at sentence boundaries for better readability
-#     sentences = message_content.split(". ")
-#     chunks = []
-#     current_chunk = ""
-
-#     for sentence in sentences:
-#         if len(current_chunk) + len(sentence) < max_length:
-#             current_chunk += sentence + ". "
-#         else:
-#             chunks.append(current_chunk)
-#             current_chunk = sentence + ". "
-
-#     if current_chunk:
-#         chunks.append(current_chunk)
-
-#     return chunks
 
 def split_message(message_content, max_length=1995):
     if not message_content.strip():
@@ -239,97 +200,7 @@ def split_message(message_content, max_length=1995):
 
     return chunks
 
-# def split_message(message_content, max_length=1995):
-#     if not message_content.strip():
-#         return []
 
-#     if len(message_content) <= max_length:
-#         return [message_content]
-
-#     chunks = []
-#     code_block_pattern = re.compile(r"(```[\s\S]*?```)", re.MULTILINE)
-#     parts = code_block_pattern.split(message_content)
-
-#     current_chunk = ""
-
-#     for part in parts:
-#         part = part.strip()
-#         if not part:
-#             continue
-
-#         if part.startswith("```") and part.endswith("```"):
-#             # It's a code block
-#             if len(part) <= max_length:
-#                 if len(current_chunk) + len(part) + 2 <= max_length:
-#                     current_chunk += part + "\n\n"
-#                 else:
-#                     if current_chunk.strip():
-#                         chunks.append(current_chunk.strip())
-#                     chunks.append(part)
-#                     current_chunk = ""
-#             else:
-#                 # Too long code block — split within
-#                 code_inside = part[3:-3].strip()
-#                 code_lines = code_inside.splitlines()
-#                 code_chunk = ""
-#                 for line in code_lines:
-#                     if len(code_chunk) + len(line) + 1 <= max_length - 6:  # room for wrapping ```
-#                         code_chunk += line + "\n"
-#                     else:
-#                         chunks.append(f"```\n{code_chunk.strip()}\n```")
-#                         code_chunk = line + "\n"
-#                 if code_chunk.strip():
-#                     chunks.append(f"```\n{code_chunk.strip()}\n```")
-#         else:
-#             # It's plain text — try to merge or split by sentence/function
-#             if len(part) <= max_length:
-#                 if len(current_chunk) + len(part) + 2 <= max_length:
-#                     current_chunk += part + "\n\n"
-#                 else:
-#                     if current_chunk.strip():
-#                         chunks.append(current_chunk.strip())
-#                     current_chunk = part + "\n\n"
-#             else:
-#                 # Fallback split by function or sentence
-#                 split_parts = re.split(r'(?=^def\s)', part, flags=re.MULTILINE)
-#                 for section in split_parts:
-#                     section = section.strip()
-#                     if not section:
-#                         continue
-#                     if len(section) <= max_length:
-#                         if len(current_chunk) + len(section) + 2 <= max_length:
-#                             current_chunk += section + "\n\n"
-#                         else:
-#                             if current_chunk.strip():
-#                                 chunks.append(current_chunk.strip())
-#                             current_chunk = section + "\n\n"
-#                     else:
-#                         # Final fallback: sentence split
-#                         sentences = section.split(". ")
-#                         for sentence in sentences:
-#                             sentence = sentence.strip()
-#                             if len(sentence) > max_length:
-#                                 while len(sentence) > max_length:
-#                                     chunks.append(sentence[:max_length])
-#                                     sentence = sentence[max_length:]
-#                                 if sentence:
-#                                     chunks.append(sentence)
-#                             else:
-#                                 if len(current_chunk) + len(sentence) + 2 <= max_length:
-#                                     current_chunk += sentence + ". "
-#                                 else:
-#                                     if current_chunk.strip():
-#                                         chunks.append(current_chunk.strip())
-#                                     current_chunk = sentence + ". "
-#                         if current_chunk.strip():
-#                             chunks.append(current_chunk.strip())
-#                             current_chunk = ""
-
-#     if current_chunk.strip():
-#         chunks.append(current_chunk.strip())
-
-#     return chunks
-    
 def read_source_code(file_path):
     try:
         with open(file_path, 'r') as file:
@@ -417,7 +288,7 @@ async def on_reaction_add(reaction, user):
         
 @bot.command()
 async def generate(ctx, *, prompt: str = None):
-    global last_generated_image_url
+    global last_generated_image_bytes
 
     if not prompt:
         await ctx.send("Please provide a prompt for the image generation.")
@@ -435,7 +306,7 @@ async def generate(ctx, *, prompt: str = None):
             if not image_bytes:
                 raise ValueError("Failed to generate an image.")
 
-            last_generated_image_url = None  # no URL anymore; store bytes or a path if needed
+            last_generated_image_bytes = image_bytes
 
             image_file = discord.File(fp=BytesIO(image_bytes), filename="image.png")
             await ctx.send(
@@ -452,49 +323,42 @@ async def generate(ctx, *, prompt: str = None):
         
 @bot.command()
 async def transform(ctx, *, instructions: str):
-    global last_generated_image_url
+    global last_generated_image_bytes
 
-    if instructions.startswith("last"):
-        if last_generated_image_url is None:
-            await ctx.send("No previous image found. Use !generate first.")
+    use_last = instructions.lower().startswith("last")
+    if use_last:
+        instructions = instructions[4:].strip()
+        if not last_generated_image_bytes:
+            await ctx.send("No previously generated image found. Use `!generate` first.")
             return
-        instructions = instructions[len("last"):].strip()
-        attachment_url = last_generated_image_url
+        image_bytes = last_generated_image_bytes
     elif ctx.message.attachments:
-        attachment = ctx.message.attachments[0]
-        attachment_url = attachment.url
+        pass  # handled inside the try block below
     else:
-        await ctx.send("Please attach an image or use 'last' for the last generated image.")
+        await ctx.send("Please attach an image or use `!transform last <instructions>` to transform the last generated image.")
         return
 
     async with ctx.typing():
         try:
-            base64_image = await encode_discord_image(attachment_url)
-            description_result = await analyze_img(base64_image, "Describe this image, give detailed and accurate descriptions...")
-            if 'choices' in description_result and description_result['choices']:
-                original_description = description_result['choices'][0].get('message', {}).get('content', '')
-                if not original_description.strip():
-                    raise ValueError("Failed to generate an original description for the image.")
-            else:
-                raise ValueError("Invalid response format from image analysis.")
+            if not use_last:
+                attachment = ctx.message.attachments[0]
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(attachment.url) as resp:
+                        image_bytes = await resp.read()
 
-            prompt = f"Rewrite the following description to incorporate the transformation: {instructions}\n\n{original_description}"
-            rewriting_result = await async_chat_completion(
-                model="gpt-4o",
-                messages=[{"role": "system", "content": transform_behaviour}, {"role": "user", "content": prompt}],
-                max_completion_tokens=250
+            result = await transform_image(image_bytes, instructions)
+
+            if isinstance(result, str):
+                await ctx.send(f"Could not transform image: {result}")
+                return
+            if not result:
+                await ctx.send("Failed to transform the image.")
+                return
+
+            await ctx.send(
+                f"Transformed Image:\nInstructions: {instructions}",
+                file=discord.File(fp=BytesIO(result), filename="transformed_image.png")
             )
-            if rewriting_result.choices:
-                modified_description = rewriting_result.choices[0].message.content.strip()
-                new_image_url = await generate_image(modified_description)
-                if new_image_url:
-                    new_image_data = requests.get(new_image_url).content
-                    new_image_file = BytesIO(new_image_data)
-                    new_image_file.seek(0)
-                    new_image_discord = discord.File(fp=new_image_file, filename='transformed_image.png')
-                    await ctx.send(f"Transformed Image:\nOriginal instructions: {instructions}", file=new_image_discord)
-                else:
-                    raise ValueError("Failed to generate a transformed image.")
         except Exception as e:
             formatted_error = format_error_message(e)
             await ctx.send(f"An error occurred during the transformation: {formatted_error}")
@@ -531,17 +395,15 @@ async def image(ctx, *, query: str):
 
 @bot.command()
 async def variation(ctx):
-    global last_generated_image_url
+    global last_generated_image_bytes
 
-    if last_generated_image_url is None:
+    if last_generated_image_bytes is None:
         await ctx.send("No previous image found. Use !generate first.")
         return
 
     async with ctx.typing():
         try:
-            # Fetch the image from the URL
-            response = requests.get(last_generated_image_url)
-            image = Image.open(io.BytesIO(response.content))
+            image = Image.open(io.BytesIO(last_generated_image_bytes))
 
             # Convert to PNG and ensure the size is less than 4 MB
             buffered = io.BytesIO()
@@ -689,9 +551,6 @@ async def list(ctx):
 #######################
 #####Discord Games#####
 #######################
-    
-# Global variable to track the game state in each channel
-active_games = {}
 
 @bot.command()
 async def game(ctx, player_symbol: str = None):
@@ -905,20 +764,6 @@ async def sandwich(ctx):
         await ctx.send(f"Error generating sandwich: {e}")
         print(f"Error: {e}")
 
-###########################
-######testing Commands#####
-###########################
-
-
-class MyView(discord.ui.View): # Create a class called MyView that subclasses discord.ui.View
-    @discord.ui.button(label="Click me!", style=discord.ButtonStyle.primary, emoji="😎") # Create a button with the label "😎 Click me!" with color Blurple
-    async def button_callback(self, button, interaction):
-        await interaction.response.send_message("You clicked the button!") # Send a message when the button is clicked
-
-@bot.command() # Create a command
-async def button(ctx):
-    await ctx.send("This is a button!", view=MyView()) # Send a message with our View class that contains the button
-
 ###########################################
 #####MAIN MESSAGE EVENT HANDLING EVENT#####
 ###########################################
@@ -926,7 +771,7 @@ async def button(ctx):
 @bot.event
 async def on_message(message):
     # Initialize global variables
-    global channel_file_contents, image_command_used, chatgpt_behaviour
+    global channel_file_contents, chatgpt_behaviour
     
     # Prevent processing if the message is from the bot or a command
     if message.author == bot.user:
@@ -938,14 +783,6 @@ async def on_message(message):
         return
     if active_games.get(message.channel.id, False):
         return
-    
-    # # Update the message history for the channel
-    # history = update_channel_history(message.channel.id, message.content)
-    
-    # # Check if it's time to summarize and update history
-    # updated_history = summarize_and_update_history(message.channel.id, history)
-
-    #print(updated_history)
 
     # Handle source code exclusion from chat history
     if 'main.py' in message.content.lower():

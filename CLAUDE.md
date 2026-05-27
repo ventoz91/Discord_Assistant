@@ -24,7 +24,6 @@ Two env files are required at the project root:
 - `OPENAI_API_KEY` — OpenAI API key
 - `MODEL_CHAT` — OpenAI model (e.g. `gpt-5.4`)
 - `PERSONALITY` — Active system prompt for the bot's behavior
-- `TRANSFORM` — System prompt used for image transformation
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
 - `HISTORYLENGTH` — Number of messages to fetch as context (default: 30)
 - `MAX_TOKENS` — Max completion tokens for responses
@@ -37,7 +36,7 @@ Two env files are required at the project root:
 
 ### Module Layout
 
-- **`AIfunc/responses.py`** — Core OpenAI wrappers: `generate_gpt_response()`, `analyze_image()`, `analyze_img()`, `generate_image()`. Also contains `start_monitoring()` which watches `./recordings/` for new audio files via watchdog and triggers TTS responses in voice channels.
+- **`AIfunc/responses.py`** — Core OpenAI wrappers: `generate_gpt_response()`, `analyze_image()`, `generate_image()`, `transform_image()`. Also contains `start_monitoring()` which watches `./recordings/` for new audio files via watchdog and triggers TTS responses in voice channels.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`: simulates a back-and-forth conversation between two bot personalities on a given topic.
 - **`chatbotfunc/utils.py`** — `fetch_message_history()` (fetches Discord channel history as OpenAI message format) and `async_chat_completion()` (wraps `openai.chat.completions.create` in a thread).
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personalities from `personalities.env`. Personalities are system prompts stored one per line.
@@ -66,7 +65,7 @@ The bot uses both `!` prefix commands (`@bot.command()`) and slash commands (`@p
 - `chatgpt_behaviour` — Active system prompt string; changed at runtime by `!change` / `/personality change`
 - `active_games` — `dict[channel_id, bool]` to prevent message handling during in-channel games
 - `channel_file_contents` — `dict[channel_id, str]` stores uploaded text file content injected into chat history
-- `last_generated_image_url` — Tracks the last DALL-E generated image for `!transform` and `!variation`
+- `last_generated_image_bytes` — Raw PNG bytes of the last `!generate` result; used by `!transform last` and `!variation`
 
 ### Voice/Audio Pipeline
 
@@ -78,8 +77,9 @@ Audio flows through two paths:
 
 | Command | Description |
 |---|---|
-| `!generate <prompt>` | Generate an image via DALL-E |
-| `!transform [last] <instructions>` | Transform attached image or last generated |
+| `!generate <prompt>` | Generate an image via gpt-image-1 |
+| `!transform <instructions>` | Transform attached image using gpt-image-1 native editing |
+| `!transform last <instructions>` | Transform the most recently generated image |
 | `!image <query>` | Search and display an image with AI description |
 | `!change [n]` | Switch to personality #n or random |
 | `!new <personality>` | Add a new personality |

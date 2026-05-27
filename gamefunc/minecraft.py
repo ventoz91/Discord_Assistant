@@ -1,4 +1,4 @@
-import subprocess 
+import subprocess
 from mcrcon import MCRcon
 import os
 import asyncio
@@ -12,40 +12,6 @@ class MinecraftServer:
             'vanilla': {'host': "localhost", 'port': 25575, 'password': "WR>**gd123"},
             'modded': {'host': "localhost", 'port': 25575, 'password': "password123"}
         }
-#Uncomment in windows environment
-    # async def start_server(self, server_type):
-    #     try:
-    #         if server_type == 'vanilla':
-    #             minecraft_dir = r'C:\Users\t_klo\Desktop\Vanilla_Server'
-    #             jar_file = 'fabric-server-mc.1.20.1-loader.0.14.22-launcher.0.11.2.jar'  # Update this to your server JAR file name
-    #         elif server_type == 'modded':
-    #             minecraft_dir = r'C:\Users\t_klo\Desktop\ATM9'
-    #             jar_file = 'serverstarter-2.4.0.jar'  # Update this to your modded server JAR file name
-    #         else:
-    #             await self.ctx.send("Invalid server type. Please use 'vanilla' or 'modded'.")
-    #             return
-
-    #         java_command = f'java -Xmx6G -jar {jar_file} nogui'
-    #         full_command = f'cmd.exe /c "cd /d {minecraft_dir} && start cmd.exe /k {java_command}"'
-    #         modded_javacommand = f'java -jar {jar_file}'
-    #         full_modded = f'cmd.exe /c "cd /d {minecraft_dir} && start cmd.exe /k startserver.bat"'
-    #         # Change the working directory and execute the command
-    #         os.chdir(minecraft_dir)
-    #         if server_type == 'vanilla':
-    #             subprocess.Popen(full_command, shell=True)
-    #         elif server_type == 'modded':
-    #             subprocess.Popen(full_modded, shell=True)
-    #         else:
-    #             await self.ctx.send("error")
-    #             return
-            
-    #         await self.ctx.send(f"{server_type.capitalize()} Minecraft server started in a new window.")
-
-    #     except Exception as e:
-    #         await self.ctx.send(f"An error occurred: {e}")
-
-
-#Linux start server command
 
     async def start_server(self, server_type):
         try:
@@ -117,25 +83,3 @@ class MinecraftServer:
 
         except Exception as e:
             await self.ctx.send(f"An error occurred while retrieving player list: {e}")
-
-
-#######FutureUSE#######
-            
-#import paramiko
-
-# def run_ssh_command_with_paramiko(command, hostname, username, password):
-#     client = paramiko.SSHClient()
-#     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-#     client.connect(hostname, username=username, password=password)
-
-#     stdin, stdout, stderr = client.exec_command(command)
-#     output = stdout.read()
-#     client.close()
-#     return output
-
-# # Construct your full_command as you did before
-# full_command = f'java -Xmx6G -jar {jar_file} nogui'
-
-# # Pass this full_command to the function along with SSH details
-# output = run_ssh_command_with_paramiko(full_command, 'raspberry.lan', 'username', 'password')
-# print(output)
