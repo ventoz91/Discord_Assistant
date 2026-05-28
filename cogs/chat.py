@@ -112,6 +112,9 @@ class ChatCog(commands.Cog):
                         response_text = (
                             analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
                         )
+                        if response_text:
+                            await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}")
+                            await async_store_message(message.channel.id, "assistant", f"[image analysis: {attachment.filename}] {response_text}")
                         await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
                         image_processed = True
                         break

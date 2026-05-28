@@ -4,6 +4,8 @@ import aiohttp
 import asyncio
 import io
 from ragfunc.memory import async_store_document, async_count, async_clear_documents, async_clear_all
+from chatbotfunc.utils import fetch_message_history, split_message
+from AIfunc.responses import generate_gpt_response
 
 TEXT_EXTENSIONS = {'.txt', '.py', '.md', '.js', '.ts', '.jsx', '.tsx', '.json', '.csv', '.yaml', '.yml', '.html', '.css', '.sh', '.toml', '.ini', '.cfg'}
 PDF_EXTENSIONS = {'.pdf'}
@@ -107,6 +109,29 @@ class RAGCog(commands.Cog):
         except Exception as e:
             print(f"[rag] cleardocs error: {e}")
             await ctx.respond(f"Error clearing documents: {e}")
+
+    # ── !summarize / /summarize ───────────────────────────────────────────────
+
+    @bridge.bridge_command(name="summarize", description="TL;DR of recent conversation in this channel")
+    async def summarize(self, ctx):
+        await ctx.defer()
+        try:
+            history = await fetch_message_history(ctx.channel, self.bot)
+            if not history:
+                await ctx.respond("No conversation history found to summarize.")
+                return
+            history.append({
+                "role": "user",
+                "content": "Give me a concise TL;DR of this conversation. Cover the main topics, key points, and anything notable. Be brief.",
+            })
+            summary = await generate_gpt_response(history, self.bot.chatgpt_behaviour)
+            chunks = split_message(f"**TL;DR — #{ctx.channel.name}**\n{summary}")
+            await ctx.respond(chunks[0])
+            for chunk in chunks[1:]:
+                await ctx.channel.send(chunk)
+        except Exception as e:
+            print(f"[rag] summarize error: {e}")
+            await ctx.respond(f"Error generating summary: {e}")
 
     # ── !clearall (prefix only — too destructive for accidental slash) ────────
 
