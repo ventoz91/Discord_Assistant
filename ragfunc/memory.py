@@ -3,6 +3,9 @@ import asyncio
 import time
 import os
 import re
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ChromaDB persists to disk here — survives bot restarts
 _DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'chroma')
@@ -19,10 +22,10 @@ CHUNK_OVERLAP = 300
 
 # Cosine distance threshold for retrieval (0=identical, 1=unrelated, 2=opposite)
 # Results above this value are dropped as too dissimilar to the query
-DISTANCE_THRESHOLD = 0.8
+DISTANCE_THRESHOLD = float(os.getenv("DISTANCE_THRESHOLD", "0.8"))
 
 # How long chat messages stay retrievable. Documents (from !learn) never expire.
-MESSAGE_TTL_DAYS = 30
+MESSAGE_TTL_DAYS = int(os.getenv("MESSAGE_TTL_DAYS", "30"))
 
 # Single-word/short filler phrases not worth storing
 _FILLER_PHRASES = {
