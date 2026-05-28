@@ -5,7 +5,7 @@ import shlex
 import time
 from mcrcon import MCRcon
 
-RCON_CONNECT_TIMEOUT = 3  # seconds per connection attempt
+RCON_CONNECT_TIMEOUT = 5.0  # seconds per connection attempt (via asyncio.wait_for, not MCRcon signals)
 
 
 class MinecraftServer:
@@ -38,9 +38,9 @@ class MinecraftServer:
     async def _rcon(self, server_type: str, command: str) -> str:
         info = self.rcon_settings[server_type]
         def _run():
-            with MCRcon(info['host'], info['password'], info['port'], timeout=RCON_CONNECT_TIMEOUT) as mcr:
+            with MCRcon(info['host'], info['password'], info['port']) as mcr:
                 return mcr.command(command)
-        return await asyncio.to_thread(_run)
+        return await asyncio.wait_for(asyncio.to_thread(_run), timeout=RCON_CONNECT_TIMEOUT)
 
     async def stop(self, server_type: str) -> str:
         try:
@@ -54,12 +54,10 @@ class MinecraftServer:
         except Exception as e:
             return str(e)
 
-    def is_running(self, server_type: str) -> bool:
-        info = self.rcon_settings[server_type]
+    async def is_running(self, server_type: str) -> bool:
         try:
-            with MCRcon(info['host'], info['password'], info['port'], timeout=RCON_CONNECT_TIMEOUT) as mcr:
-                mcr.command('list')
-                return True
+            await self._rcon(server_type, 'list')
+            return True
         except Exception:
             return False
 
@@ -81,8 +79,7 @@ class MinecraftServer:
     async def wait_until_stopped(self, server_type: str, timeout: int = 60) -> bool:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            running = await asyncio.to_thread(self.is_running, server_type)
-            if not running:
+            if not await self.is_running(server_type):
                 return True
             await asyncio.sleep(3)
         return False

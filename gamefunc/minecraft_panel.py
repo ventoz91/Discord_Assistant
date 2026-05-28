@@ -50,8 +50,8 @@ class MinecraftPanel(discord.ui.View):
 
     async def refresh_states(self, message: discord.Message):
         """Check actual server state via RCON and update the panel."""
-        vanilla = await asyncio.to_thread(self.server.is_running, 'vanilla')
-        modded  = await asyncio.to_thread(self.server.is_running, 'modded')
+        vanilla = await self.server.is_running('vanilla')
+        modded  = await self.server.is_running('modded')
         self.states['vanilla'] = 'online' if vanilla else 'offline'
         self.states['modded']  = 'online' if modded  else 'offline'
         self._sync_buttons()

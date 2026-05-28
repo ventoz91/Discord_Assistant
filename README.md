@@ -59,6 +59,7 @@ GOOGLE_CSE_ID=your_cse_id
 VALHEIM_SERVER_NAME=MyValheimServer
 VALHEIM_WORLD_NAME=MyWorld
 VALHEIM_PASSWORD=your_password
+VALHEIM_PORT=2456
 VALHEIM_STEAM_DIR=I:\SteamLibrary
 ENSHROUDED_EXE=I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe
 ```

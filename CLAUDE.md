@@ -37,6 +37,7 @@ Two env files are required at the project root:
 - `VALHEIM_SERVER_NAME` — Valheim server display name
 - `VALHEIM_WORLD_NAME` — Valheim world name
 - `VALHEIM_PASSWORD` — Valheim server password
+- `VALHEIM_PORT` — Valheim game port (default: 2456)
 - `VALHEIM_STEAM_DIR` — Path to Steam directory (Windows)
 - `ENSHROUDED_EXE` — Full path to enshrouded_server.exe (Windows)
 
