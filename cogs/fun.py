@@ -36,44 +36,54 @@ class FunCog(commands.Cog):
     @commands.command(name="simulate")
     async def simulate_prefix(self, ctx, *args):
         if len(args) < 1:
-            await ctx.send("Please provide a topic for the conversation.")
+            await ctx.send("Please provide a topic for the debate.")
             return
         topic = args[-1]
         personalities = args[:-1]
         if len(personalities) > 2:
-            await ctx.send("Please provide up to two personality indices followed by a topic.")
+            await ctx.send("Usage: `!simulate [p1] [p2] <topic>`")
             return
         try:
             personality_indices = [int(i) for i in personalities]
         except ValueError:
-            await ctx.send("Please provide valid personality indices (as numbers).")
+            await ctx.send("Personality indices must be numbers. Use `!list` to see them.")
             return
         await self._simulate_impl(ctx, topic, personality_indices)
 
-    @discord.slash_command(name="simulate", description="Simulate a conversation between two personalities on a topic")
+    @discord.slash_command(name="simulate", description="Simulate a debate between two personalities")
     async def simulate_slash(self, ctx,
-        topic: discord.Option(str, "Topic for the conversation"),
-        p1: discord.Option(int, "First personality index", required=False) = None,
-        p2: discord.Option(int, "Second personality index", required=False) = None):
+        topic: discord.Option(str, "Topic for the debate"),
+        p1: discord.Option(int, "First personality index (see /personality list)", required=False) = None,
+        p2: discord.Option(int, "Second personality index", required=False) = None,
+        turns: discord.Option(int, "Number of turns (2–12, default 6)", required=False) = 6):
         await ctx.defer()
+        turns = max(2, min(turns, 12))
         personality_indices = [i for i in [p1, p2] if i is not None]
-        await self._simulate_impl(ctx, topic, personality_indices)
+        await self._simulate_impl(ctx, topic, personality_indices, turns)
 
-    async def _simulate_impl(self, ctx, topic: str, personality_indices: list):
+    async def _simulate_impl(self, ctx, topic: str, personality_indices: list, turns: int = 6):
         api_key = os.getenv("OPENAI_API_KEY")
-        simulator = ConversationSimulator(api_key, os.getenv("MODEL_CHAT", "gpt-3.5-turbo"))
-        conversation_lines = await simulator.simulate_conversation(
-            ctx.channel, topic, personality_indices, 6, self.bot
-        )
+        simulator = ConversationSimulator(api_key, os.getenv("MODEL_CHAT"))
         first = True
-        for line in conversation_lines:
-            for chunk in split_message(line, 2000):
+        async for label, text in simulator.simulate_conversation(topic, personality_indices, turns):
+            if label == "intro":
+                msg = text
+            elif label == "judge":
+                msg = f"**⚖️ Verdict**\n{text}"
+            elif label == "error":
+                msg = text
+            else:
+                msg = f"**{label}:** {text}"
+
+            for chunk in split_message(msg, 2000):
                 if first:
                     await ctx.respond(chunk)
                     first = False
                 else:
                     await ctx.channel.send(chunk)
-                await asyncio.sleep(3)
+
+            if label not in ("intro", "error"):
+                await asyncio.sleep(2)
 
     # ── Sandwich ──────────────────────────────────────────────────────────────
 

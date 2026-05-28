@@ -1,69 +1,92 @@
 import random
 import asyncio
 from openai import AsyncOpenAI
-from chatbotfunc.utils import fetch_message_history
 from chatbotfunc.personalitymanager import PersonalityManager
+from AIfunc.responses import BASE_SYSTEM_PROMPT
 
 personality_manager = PersonalityManager()
+
+DEBATE_ADDENDUM = (
+    "\n\nYou are in a live debate. Be direct and punchy. Respond specifically "
+    "to what was just said. Stay fully in character. Keep it under 3 sentences."
+)
+
+JUDGE_PROMPT = (
+    "You are an impartial, entertaining debate judge. You've just watched a debate. "
+    "Declare a winner, briefly explain why in their favour, and make it fun. 2-3 sentences max."
+)
+
 
 class ConversationSimulator:
     def __init__(self, openai_api_key, model_chat):
         self.client = AsyncOpenAI(api_key=openai_api_key)
         self.model_chat = model_chat
 
-    async def simulate_conversation(self, channel, topic, personality_indices, turns, bot):
-        discord_history = await fetch_message_history(channel, bot)
+    async def simulate_conversation(self, topic: str, personality_indices: list, turns: int = 6):
+        """Async generator — yields (label, text) tuples as each piece is ready.
 
-        # Read personalities from file
+        Labels: 'intro', speaker name, 'judge', 'error'
+        """
         personalities = personality_manager.read_personalities_from_file()
         if len(personalities) < 2:
-            return ["Not enough personalities to simulate a conversation."]
+            yield ("error", "Not enough personalities loaded to run a simulation.")
+            return
 
-        # Select personalities based on provided indices or choose randomly
-        if personality_indices and len(personality_indices) == 2:
+        if len(personality_indices) == 2:
             try:
-                personality_one, personality_two = [personalities[i-1] for i in personality_indices]
+                p1, p2 = [personalities[i - 1] for i in personality_indices]
             except IndexError:
-                return ["Invalid personality indices. Please choose valid numbers based on the available personalities."]
+                yield ("error", "Invalid personality index — use `!list` to see available numbers.")
+                return
         else:
-            personality_one, personality_two = random.sample(personalities, 2)
+            p1, p2 = random.sample(personalities, 2)
 
-        personality_one_name = await personality_manager.get_personality_name(self.model_chat, personality_one)
-        personality_two_name = await personality_manager.get_personality_name(self.model_chat, personality_two)
+        # Fetch both names in parallel
+        name1, name2 = await asyncio.gather(
+            personality_manager.get_personality_name(self.model_chat, p1),
+            personality_manager.get_personality_name(self.model_chat, p2),
+        )
 
-        # Initialize conversation context
-        conversation_context = [{"role": "system", "content": f"Let's discuss: {topic}."}]
+        yield ("intro", f"🎭 **{name1}** vs **{name2}**\nTopic: *{topic}*")
 
-        # Generate conversation replies
+        speakers = [(name1, p1), (name2, p2)]
+        log: list[tuple[str, str]] = []  # (speaker_name, text)
+
         for i in range(turns):
-            current_role = "assistant" if i % 2 == 0 else "user"
-            current_personality = personality_one if current_role == "assistant" else personality_two
-            current_personality_name = personality_one_name if current_role == "assistant" else personality_two_name
-            length_limit_directive = "Please limit your response to 500 characters."
-            response_request = "" if i == turns - 1 else " What is your response to this?"
+            current_name, current_personality = speakers[i % 2]
+
+            system_content = BASE_SYSTEM_PROMPT.format(personality=current_personality) + DEBATE_ADDENDUM
+
+            # Build full conversation history from each speaker's perspective
+            messages = [{"role": "system", "content": system_content}]
+            for speaker, text in log:
+                role = "assistant" if speaker == current_name else "user"
+                messages.append({"role": role, "content": f"{speaker}: {text}"})
+
             if i == 0:
-                prompt_text = f"As a {current_personality}, {current_personality}: What is your opinion on {topic}?{response_request} {length_limit_directive}"
-            else:
-                last_message = conversation_context[-1]["content"]
-                prompt_text = f"As a {current_personality}, {last_message}{response_request} {length_limit_directive}"
-            prompt = [{"role": current_role, "content": prompt_text}]
+                messages.append({"role": "user", "content": f"Open the debate on: {topic}"})
 
             response = await self.client.chat.completions.create(
                 model=self.model_chat,
-                messages=prompt,
+                messages=messages,
                 temperature=1.5,
                 top_p=0.9,
-                max_completion_tokens=150
+                max_completion_tokens=120,
             )
-            gpt_reply = response.choices[0].message.content.strip()
-            conversation_context.append({"role": "user", "content": f"{gpt_reply}"})
+            reply = response.choices[0].message.content.strip()
+            log.append((current_name, reply))
+            yield (current_name, reply)
 
-        # Format the conversation history for output
-        conversation_lines = []
-        for idx, message in enumerate(conversation_context):
-            if idx > 0:
-                conversation_lines.append("----------------------------------------")
-            label = personality_one_name if (idx - 1) % 2 == 0 else personality_two_name
-            conversation_lines.append(f"**{label}:** {message['content']}")
-
-        return conversation_lines
+        # Judge
+        transcript = "\n".join(f"{name}: {text}" for name, text in log)
+        judge_messages = [
+            {"role": "system", "content": JUDGE_PROMPT},
+            {"role": "user", "content": f"Topic: {topic}\n\n{transcript}"},
+        ]
+        judge_response = await self.client.chat.completions.create(
+            model=self.model_chat,
+            messages=judge_messages,
+            temperature=1.0,
+            max_completion_tokens=150,
+        )
+        yield ("judge", judge_response.choices[0].message.content.strip())
