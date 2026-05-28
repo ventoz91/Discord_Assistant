@@ -14,13 +14,14 @@ RATE_LIMIT = 0.5
 class ChatCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self._channel_queues: dict[int, asyncio.Queue] = {}
+        self._channel_workers: dict[int, asyncio.Task] = {}
 
     def _should_respond(self, message) -> bool:
         if message.author == self.bot.user:
             return False
         if "Generated Image" in message.content:
             return False
-        # Always respond when directly @mentioned, even outside allowed channels
         if self.bot.user in message.mentions:
             return True
         channel_ids_str = os.getenv("CHANNEL_IDS", "")
@@ -29,7 +30,6 @@ class ChatCog(commands.Cog):
         allowed = [int(cid) for cid in channel_ids_str.split(',') if cid.strip()]
         if message.channel.id not in allowed:
             return False
-        # In an allowed channel, stay quiet if the message is directed at a specific human
         human_mentions = [u for u in message.mentions if not u.bot]
         return len(human_mentions) == 0
 
@@ -63,6 +63,8 @@ class ChatCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
+        if os.getenv("REACTION_RESPONSES", "true").lower() != "true":
+            return
         if reaction.message.author != self.bot.user or user == self.bot.user:
             return
         messages = await fetch_message_history(reaction.message.channel, self.bot)
@@ -90,6 +92,7 @@ class ChatCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_message(self, message):
+        # Fast early returns — don't queue these
         if message.author == self.bot.user:
             return
         if message.content.startswith(self.bot.command_prefix):
@@ -97,11 +100,36 @@ class ChatCog(commands.Cog):
         if self.bot.active_games.get(message.channel.id, False):
             return
 
-        image_processed = False
+        # Queue message for sequential per-channel processing
+        channel_id = message.channel.id
+        if channel_id not in self._channel_queues:
+            self._channel_queues[channel_id] = asyncio.Queue()
+        await self._channel_queues[channel_id].put(message)
+
+        worker = self._channel_workers.get(channel_id)
+        if worker is None or worker.done():
+            self._channel_workers[channel_id] = asyncio.create_task(
+                self._process_queue(channel_id)
+            )
+
+    async def _process_queue(self, channel_id: int):
+        queue = self._channel_queues[channel_id]
+        while not queue.empty():
+            message = await queue.get()
+            try:
+                await self._handle_message(message)
+            except Exception as e:
+                print(Fore.RED + f"[chat] queue error in channel {channel_id}: {e}" + Fore.RESET)
+            finally:
+                queue.task_done()
+
+    async def _handle_message(self, message):
         channel_behaviour = (
             self.bot.personality_manager.get_channel_personality(message.channel.id)
             or self.bot.chatgpt_behaviour
         )
+
+        image_processed = False
         if message.attachments and self._should_respond(message):
             for attachment in message.attachments:
                 if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
@@ -126,7 +154,6 @@ class ChatCog(commands.Cog):
         if image_processed:
             return
 
-        text_file_content = None
         if message.attachments:
             for attachment in message.attachments:
                 fname = attachment.filename.lower()
