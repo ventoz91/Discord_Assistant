@@ -48,10 +48,13 @@ A single **`.env`** file at the project root holds all configuration:
 ## Personality System
 
 `BASE_SYSTEM_PROMPT` in `AIfunc/responses.py` is the shared system prompt used for all responses. It establishes:
-- Discord platform context (concise, conversational)
+- Discord platform context (concise, conversational, match conversation energy)
+- No hollow filler openers ("Great question!", "Certainly!", etc.)
 - Code block formatting rules
-- History handling (focus on recent message, use history as context)
-- Stay-in-character directive
+- RAG context handling: treat injected memory as natural background knowledge, do not announce it
+- History handling (focus on recent message, use history as supporting context only)
+- Stay-in-character directive — personality shapes voice/tone, not factual accuracy
+- Uncertainty: admit "I'm not sure" in character rather than fabricating
 
 `bot.chatgpt_behaviour` holds the active short personality descriptor (e.g. `"a sarcastic assistant named Soupy Dafoe obsessed with soup"`). It is injected into `BASE_SYSTEM_PROMPT` at call time in `generate_gpt_response` and `analyze_image`. Personality descriptors should be short — the base prompt handles all boilerplate rules.
 
