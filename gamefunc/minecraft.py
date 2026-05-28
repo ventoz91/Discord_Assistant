@@ -2,7 +2,10 @@ import subprocess
 import asyncio
 import os
 import shlex
+import time
 from mcrcon import MCRcon
+
+RCON_CONNECT_TIMEOUT = 3  # seconds per connection attempt
 
 
 class MinecraftServer:
@@ -35,7 +38,7 @@ class MinecraftServer:
     async def _rcon(self, server_type: str, command: str) -> str:
         info = self.rcon_settings[server_type]
         def _run():
-            with MCRcon(info['host'], info['password'], info['port']) as mcr:
+            with MCRcon(info['host'], info['password'], info['port'], timeout=RCON_CONNECT_TIMEOUT) as mcr:
                 return mcr.command(command)
         return await asyncio.to_thread(_run)
 
@@ -54,25 +57,30 @@ class MinecraftServer:
     def is_running(self, server_type: str) -> bool:
         info = self.rcon_settings[server_type]
         try:
-            with MCRcon(info['host'], info['password'], info['port']) as mcr:
+            with MCRcon(info['host'], info['password'], info['port'], timeout=RCON_CONNECT_TIMEOUT) as mcr:
                 mcr.command('list')
                 return True
         except Exception:
             return False
 
-    async def wait_until_ready(self, server_type: str, timeout: int = 120) -> bool:
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
+    async def wait_until_ready(self, server_type: str, timeout: int = 300) -> bool:
+        print(f"[minecraft] waiting for {server_type} RCON (up to {timeout}s)...")
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             try:
                 await self._rcon(server_type, 'list')
+                print(f"[minecraft] {server_type} RCON connected — server ready")
                 return True
-            except Exception:
+            except Exception as e:
+                remaining = int(deadline - time.monotonic())
+                print(f"[minecraft] {server_type} not ready yet ({e}), {remaining}s remaining")
                 await asyncio.sleep(5)
+        print(f"[minecraft] {server_type} timed out waiting for RCON")
         return False
 
     async def wait_until_stopped(self, server_type: str, timeout: int = 60) -> bool:
-        deadline = asyncio.get_event_loop().time() + timeout
-        while asyncio.get_event_loop().time() < deadline:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             running = await asyncio.to_thread(self.is_running, server_type)
             if not running:
                 return True

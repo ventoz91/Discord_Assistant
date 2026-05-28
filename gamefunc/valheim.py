@@ -8,6 +8,7 @@ class ValheimServer:
         self.world_name       = os.getenv('VALHEIM_WORLD_NAME', 'MyWorld')
         self.server_password  = os.getenv('VALHEIM_PASSWORD', '')
         self.steam_directory  = os.getenv('VALHEIM_STEAM_DIR', '')
+        self.port             = os.getenv('VALHEIM_PORT', '2456')
 
     def create_valheim_server_batch_file(self):
         batch_file_path = os.path.join(self.steam_directory, 'URDediServ.bat')
@@ -33,7 +34,7 @@ class ValheimServer:
                                '\n'
                                'echo "Starting server PRESS CTRL-C to exit"\n'
                                '\n'
-                               f'valheim_server -nographics -batchmode -name "{self.server_name}" -port 2456 -world "{self.world_name}" -password "{self.server_password}" -crossplay')
+                               f'valheim_server -nographics -batchmode -name "{self.server_name}" -port {self.port} -world "{self.world_name}" -password "{self.server_password}" -crossplay')
 
         return batch_file_path
 
