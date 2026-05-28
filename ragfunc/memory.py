@@ -14,8 +14,8 @@ RETRIEVAL_K = 5
 RECENT_CONTEXT_MESSAGES = 6
 
 # Maximum characters per document chunk
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 100
+CHUNK_SIZE = 3000
+CHUNK_OVERLAP = 300
 
 
 def _get_client():

@@ -137,7 +137,7 @@ class ChatCog(commands.Cog):
 
             async with message.channel.typing():
                 query = message.content or ""
-                rag_docs = await async_retrieve(message.channel.id, query, k=3, doc_type="document")
+                rag_docs = await async_retrieve(message.channel.id, query, k=5, doc_type="document")
                 rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
                 rag_context = rag_docs + rag_msgs or None
 
