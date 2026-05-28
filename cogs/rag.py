@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, bridge
 import aiohttp
 import asyncio
 import io
@@ -28,7 +28,7 @@ class RAGCog(commands.Cog):
         return "\n\n".join(p for p in pages if p.strip())
 
     async def _file_to_text(self, url: str, filename: str) -> str | None:
-        ext = '.' + filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        ext = ('.' + filename.rsplit('.', 1)[-1].lower()) if '.' in filename else ''
         raw = await self._download_bytes(url)
         if raw is None:
             return None
@@ -46,10 +46,10 @@ class RAGCog(commands.Cog):
         """Store text or an attached file as a searchable document."""
         content, source = await self._resolve_learn_input(ctx.message.attachments, text, None)
         if content is None:
-            exts = ', '.join(sorted(ALL_SUPPORTED))
-            await ctx.send(f"Provide some text or attach a supported file ({exts}).")
+            await ctx.send(f"Provide some text or attach a supported file ({', '.join(sorted(ALL_SUPPORTED))}).")
             return
-        await self._do_learn(ctx, content, source)
+        n = await async_store_document(ctx.channel.id, content, source=source)
+        await ctx.send(f"Stored **{n}** chunk{'s' if n != 1 else ''} from `{source}` in memory.")
 
     @discord.slash_command(name="learn", description="Store text or a file as a searchable document")
     async def learn_slash(
@@ -59,74 +59,54 @@ class RAGCog(commands.Cog):
         file: discord.Option(discord.Attachment, "File to store (.txt, .py, .pdf, etc.)", required=False) = None,
     ):
         await ctx.defer()
-        content, source = await self._resolve_learn_input([], text, file)
-        if content is None:
-            exts = ', '.join(sorted(ALL_SUPPORTED))
-            await ctx.respond(f"Provide some text or attach a supported file ({exts}).")
-            return
-        await self._do_learn(ctx, content, source, slash=True)
+        try:
+            content, source = await self._resolve_learn_input([], text, file)
+            if content is None:
+                await ctx.respond(f"Provide some text or attach a supported file ({', '.join(sorted(ALL_SUPPORTED))}).")
+                return
+            n = await async_store_document(ctx.channel.id, content, source=source)
+            await ctx.respond(f"Stored **{n}** chunk{'s' if n != 1 else ''} from `{source}` in memory.")
+        except Exception as e:
+            print(f"[rag] learn_slash error: {e}")
+            await ctx.respond(f"Error storing document: {e}")
 
     async def _resolve_learn_input(self, attachments, text, slash_file):
         if slash_file is not None:
-            ext = '.' + slash_file.filename.rsplit('.', 1)[-1].lower() if '.' in slash_file.filename else ''
+            ext = ('.' + slash_file.filename.rsplit('.', 1)[-1].lower()) if '.' in slash_file.filename else ''
             if ext not in ALL_SUPPORTED:
                 return None, None
             return await self._file_to_text(slash_file.url, slash_file.filename), slash_file.filename
         for att in attachments:
-            ext = '.' + att.filename.rsplit('.', 1)[-1].lower() if '.' in att.filename else ''
+            ext = ('.' + att.filename.rsplit('.', 1)[-1].lower()) if '.' in att.filename else ''
             if ext in ALL_SUPPORTED:
                 return await self._file_to_text(att.url, att.filename), att.filename
         if text:
             return text, "text"
         return None, None
 
-    async def _do_learn(self, ctx, content: str, source: str, slash: bool = False):
-        n = await async_store_document(ctx.channel.id, content, source=source)
-        msg = f"Stored **{n}** chunk{'s' if n != 1 else ''} from `{source}` in memory."
-        if slash:
-            await ctx.respond(msg)
-        else:
-            await ctx.send(msg)
-
     # ── !memory / /memory ─────────────────────────────────────────────────────
 
-    @commands.command(name="memory")
-    async def memory_prefix(self, ctx):
-        """Show memory stats for this channel."""
-        await self._show_memory(ctx)
-
-    @discord.slash_command(name="memory", description="Show memory stats for this channel")
-    async def memory_slash(self, ctx):
+    @bridge.bridge_command(name="memory", description="Show memory stats for this channel")
+    async def memory(self, ctx):
         await ctx.defer()
-        await self._show_memory(ctx, slash=True)
-
-    async def _show_memory(self, ctx, slash: bool = False):
-        stats = await async_count(ctx.channel.id)
-        msg = f"**Memory stats for #{ctx.channel.name}**\nTotal stored chunks: `{stats['total']}`"
-        if slash:
-            await ctx.respond(msg)
-        else:
-            await ctx.send(msg)
+        try:
+            stats = await async_count(ctx.channel.id)
+            await ctx.respond(f"**Memory — #{ctx.channel.name}**\nTotal stored chunks: `{stats['total']}`")
+        except Exception as e:
+            print(f"[rag] memory error: {e}")
+            await ctx.respond(f"Error reading memory stats: {e}")
 
     # ── !cleardocs / /cleardocs ───────────────────────────────────────────────
 
-    @commands.command(name="cleardocs")
-    async def cleardocs_prefix(self, ctx):
-        """Remove all stored documents (keeps message history)."""
-        await self._do_cleardocs(ctx)
-
-    @discord.slash_command(name="cleardocs", description="Remove all stored documents from memory (keeps message history)")
-    async def cleardocs_slash(self, ctx):
+    @bridge.bridge_command(name="cleardocs", description="Remove all stored documents from memory (keeps message history)")
+    async def cleardocs(self, ctx):
         await ctx.defer()
-        await self._do_cleardocs(ctx, slash=True)
-
-    async def _do_cleardocs(self, ctx, slash: bool = False):
-        n = await async_clear_documents(ctx.channel.id)
-        msg = f"Removed **{n}** document chunk{'s' if n != 1 else ''} from memory."
-        if slash:
-            await ctx.respond(msg)
-        else:
-            await ctx.send(msg)
+        try:
+            n = await async_clear_documents(ctx.channel.id)
+            await ctx.respond(f"Removed **{n}** document chunk{'s' if n != 1 else ''} from memory.")
+        except Exception as e:
+            print(f"[rag] cleardocs error: {e}")
+            await ctx.respond(f"Error clearing documents: {e}")
 
     # ── !clearall (prefix only — too destructive for accidental slash) ────────
 
@@ -134,8 +114,12 @@ class RAGCog(commands.Cog):
     @commands.has_permissions(manage_messages=True)
     async def clearall_prefix(self, ctx):
         """Wipe all memory (messages + documents) for this channel. Requires Manage Messages."""
-        await async_clear_all(ctx.channel.id)
-        await ctx.send("All memory cleared for this channel.")
+        try:
+            await async_clear_all(ctx.channel.id)
+            await ctx.send("All memory cleared for this channel.")
+        except Exception as e:
+            print(f"[rag] clearall error: {e}")
+            await ctx.send(f"Error clearing memory: {e}")
 
 
 def setup(bot):
