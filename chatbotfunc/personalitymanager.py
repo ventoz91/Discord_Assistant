@@ -55,6 +55,33 @@ class PersonalityManager:
         self.personalities = self.read_personalities_from_file()
         return removed
 
+    def get_active(self) -> str:
+        """Return the last persisted active personality, falling back to index 0."""
+        if not os.path.exists(self.filepath):
+            return self.personalities[0] if self.personalities else ""
+        with open(self.filepath, "r") as f:
+            for line in f:
+                if line.strip().startswith("ACTIVE_PERSONALITY="):
+                    return line.strip()[len("ACTIVE_PERSONALITY="):]
+        return self.personalities[0] if self.personalities else ""
+
+    def set_active(self, descriptor: str):
+        """Persist the active personality to .env as ACTIVE_PERSONALITY=."""
+        if not os.path.exists(self.filepath):
+            return
+        with open(self.filepath, "r") as f:
+            lines = f.readlines()
+        existing = any(l.strip().startswith("ACTIVE_PERSONALITY=") for l in lines)
+        if existing:
+            lines = [
+                f"ACTIVE_PERSONALITY={descriptor}\n" if l.strip().startswith("ACTIVE_PERSONALITY=") else l
+                for l in lines
+            ]
+        else:
+            lines.append(f"ACTIVE_PERSONALITY={descriptor}\n")
+        with open(self.filepath, "w") as f:
+            f.writelines(lines)
+
     def get_random_personality(self):
         return random.choice(self.personalities)
 

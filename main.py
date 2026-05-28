@@ -17,7 +17,7 @@ bot = bridge.Bot(command_prefix='!', intents=intents)
 bot.active_games = {}
 bot.last_generated_image_bytes = None
 bot.personality_manager = PersonalityManager(filepath=".env")
-bot.chatgpt_behaviour = bot.personality_manager.personalities[0] if bot.personality_manager.personalities else ""
+bot.chatgpt_behaviour = bot.personality_manager.get_active()
 
 for extension in [
     'cogs.chat',

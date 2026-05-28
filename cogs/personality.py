@@ -1,6 +1,5 @@
 import discord
 from discord.ext import commands
-import os
 import random
 import tempfile
 
@@ -29,6 +28,7 @@ class PersonalityCog(commands.Cog):
         else:
             self.bot.chatgpt_behaviour = random.choice(personalities)
             await ctx.send(f"Random behavior selected! New behavior is: {self.bot.chatgpt_behaviour}")
+        self.bot.personality_manager.set_active(self.bot.chatgpt_behaviour)
 
     @commands.command(name='list')
     async def list_prefix(self, ctx):
@@ -71,15 +71,8 @@ class PersonalityCog(commands.Cog):
             self.bot.chatgpt_behaviour = personalities[choice - 1]
         else:
             self.bot.chatgpt_behaviour = random.choice(personalities)
+        self.bot.personality_manager.set_active(self.bot.chatgpt_behaviour)
         await ctx.respond(f"Behavior changed to: {self.bot.chatgpt_behaviour}")
-        with open(".env", "r") as file:
-            lines = file.readlines()
-        with open(".env", "w") as file:
-            for line in lines:
-                if line.startswith("PERSONALITY="):
-                    file.write(f"PERSONALITY={self.bot.chatgpt_behaviour}\n")
-                else:
-                    file.write(line)
 
     @personality.command(description="list personalities")
     async def list(self, ctx):
