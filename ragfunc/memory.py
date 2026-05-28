@@ -21,6 +21,9 @@ CHUNK_OVERLAP = 300
 # Results above this value are dropped as too dissimilar to the query
 DISTANCE_THRESHOLD = 0.8
 
+# How long chat messages stay retrievable. Documents (from !learn) never expire.
+MESSAGE_TTL_DAYS = 30
+
 # Single-word/short filler phrases not worth storing
 _FILLER_PHRASES = {
     "lol", "lmao", "lmfao", "haha", "hehe", "ok", "okay", "k", "kk",
@@ -107,11 +110,12 @@ class ChannelMemory:
         if role != "assistant" and not _should_store(content):
             return
         doc_id = f"msg-{message_id}" if message_id else f"msg-{int(time.time() * 1000)}"
+        expires_at = int(time.time()) + MESSAGE_TTL_DAYS * 86400
         try:
             self._col.upsert(
                 ids=[doc_id],
                 documents=[f"{role}: {content}"],
-                metadatas=[{"type": "message", "role": role, "ts": int(time.time())}],
+                metadatas=[{"type": "message", "role": role, "ts": int(time.time()), "expires_at": expires_at}],
             )
         except Exception as e:
             print(f"[memory] store_message error: {e}")
@@ -124,7 +128,7 @@ class ChannelMemory:
         for i, chunk in enumerate(chunks):
             ids.append(f"doc-{base_ts}-{i}")
             docs.append(chunk)
-            metas.append({"type": "document", "source": source, "ts": int(time.time())})
+            metas.append({"type": "document", "source": source, "ts": int(time.time()), "expires_at": 0})
         if ids:
             try:
                 self._col.upsert(ids=ids, documents=docs, metadatas=metas)
@@ -146,11 +150,17 @@ class ChannelMemory:
                 query_texts=[query],
                 n_results=k,
                 where=where,
-                include=["documents", "distances"],
+                include=["documents", "distances", "metadatas"],
             )
             docs = results["documents"][0] if results["documents"] else []
             distances = results["distances"][0] if results["distances"] else []
-            return [doc for doc, dist in zip(docs, distances) if dist <= DISTANCE_THRESHOLD]
+            metadatas = results["metadatas"][0] if results["metadatas"] else []
+            now = int(time.time())
+            return [
+                doc for doc, dist, meta in zip(docs, distances, metadatas)
+                if dist <= DISTANCE_THRESHOLD
+                and (meta.get("expires_at", 0) == 0 or meta.get("expires_at", 0) > now)
+            ]
         except Exception as e:
             print(f"[memory] retrieve error: {e}")
             return []

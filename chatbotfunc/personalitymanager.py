@@ -1,6 +1,9 @@
 import random
 import os
+import json
 from chatbotfunc.utils import async_chat_completion
+
+_CHANNEL_PIN_PATH = os.path.join("data", "channel_personalities.json")
 
 
 class PersonalityManager:
@@ -81,6 +84,35 @@ class PersonalityManager:
             lines.append(f"ACTIVE_PERSONALITY={descriptor}\n")
         with open(self.filepath, "w") as f:
             f.writelines(lines)
+
+    # ── Per-channel personality pins ──────────────────────────────────────────
+
+    def _load_pins(self) -> dict:
+        if not os.path.exists(_CHANNEL_PIN_PATH):
+            return {}
+        with open(_CHANNEL_PIN_PATH, "r") as f:
+            return json.load(f)
+
+    def _save_pins(self, pins: dict):
+        os.makedirs(os.path.dirname(_CHANNEL_PIN_PATH), exist_ok=True)
+        with open(_CHANNEL_PIN_PATH, "w") as f:
+            json.dump(pins, f, indent=2)
+
+    def get_channel_personality(self, channel_id: int) -> str | None:
+        return self._load_pins().get(str(channel_id))
+
+    def set_channel_personality(self, channel_id: int, descriptor: str):
+        pins = self._load_pins()
+        pins[str(channel_id)] = descriptor
+        self._save_pins(pins)
+
+    def clear_channel_personality(self, channel_id: int) -> bool:
+        pins = self._load_pins()
+        if str(channel_id) in pins:
+            del pins[str(channel_id)]
+            self._save_pins(pins)
+            return True
+        return False
 
     def get_random_personality(self):
         return random.choice(self.personalities)

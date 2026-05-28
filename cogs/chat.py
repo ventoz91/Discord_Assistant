@@ -98,6 +98,10 @@ class ChatCog(commands.Cog):
             return
 
         image_processed = False
+        channel_behaviour = (
+            self.bot.personality_manager.get_channel_personality(message.channel.id)
+            or self.bot.chatgpt_behaviour
+        )
         if message.attachments and self._should_respond(message):
             for attachment in message.attachments:
                 if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
@@ -107,7 +111,7 @@ class ChatCog(commands.Cog):
                         instructions = message.content if message.content else "What's in this image?"
                         message_history = await fetch_message_history(message.channel, self.bot)
                         analysis_result = await analyze_image(
-                            base64_image, instructions, message_history, self.bot.chatgpt_behaviour
+                            base64_image, instructions, message_history, channel_behaviour
                         )
                         response_text = (
                             analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -147,7 +151,7 @@ class ChatCog(commands.Cog):
                 message_history = await fetch_message_history(message.channel, self.bot)
                 message_history.append({"role": "user", "content": message.content})
                 gpt_response = await generate_gpt_response(
-                    message_history, self.bot.chatgpt_behaviour, rag_context=rag_context
+                    message_history, channel_behaviour, rag_context=rag_context
                 )
                 chunks = split_message(gpt_response)
                 sent = await message.channel.send(chunks[0])

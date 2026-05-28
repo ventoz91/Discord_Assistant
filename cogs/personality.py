@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import os
 import random
 import tempfile
 
@@ -40,6 +41,25 @@ class PersonalityCog(commands.Cog):
         with open(tmp_name, 'rb') as f:
             await ctx.send("Available Personalities:", file=discord.File(f, 'personalities_list.txt'))
         os.remove(tmp_name)
+
+    @commands.command(name='pin')
+    async def pin_prefix(self, ctx, choice: int = None):
+        """Pin a personality to this channel. Uses current global personality if no index given."""
+        personalities = self.bot.personality_manager.personalities
+        if choice is not None and 1 <= choice <= len(personalities):
+            descriptor = personalities[choice - 1]
+        else:
+            descriptor = self.bot.chatgpt_behaviour
+        self.bot.personality_manager.set_channel_personality(ctx.channel.id, descriptor)
+        await ctx.send(f"Pinned personality to #{ctx.channel.name}: {descriptor}")
+
+    @commands.command(name='unpin')
+    async def unpin_prefix(self, ctx):
+        """Remove the pinned personality from this channel."""
+        if self.bot.personality_manager.clear_channel_personality(ctx.channel.id):
+            await ctx.send(f"Personality pin removed from #{ctx.channel.name}. Using global personality.")
+        else:
+            await ctx.send(f"No personality pinned to #{ctx.channel.name}.")
 
     # ── Slash commands ────────────────────────────────────────────────────────
 
@@ -84,6 +104,23 @@ class PersonalityCog(commands.Cog):
         with open(tmp_name, 'rb') as f:
             await ctx.respond("Available Personalities:", file=discord.File(f, 'personalities_list.txt'))
         os.remove(tmp_name)
+
+    @personality.command(description="pin a personality to this channel permanently")
+    async def pin(self, ctx, choice: discord.Option(int, "Personality number from /personality list", required=False) = None):
+        personalities = self.bot.personality_manager.personalities
+        if choice is not None and 1 <= choice <= len(personalities):
+            descriptor = personalities[choice - 1]
+        else:
+            descriptor = self.bot.chatgpt_behaviour
+        self.bot.personality_manager.set_channel_personality(ctx.channel.id, descriptor)
+        await ctx.respond(f"Pinned personality to #{ctx.channel.name}: {descriptor}")
+
+    @personality.command(description="remove the pinned personality from this channel")
+    async def unpin(self, ctx):
+        if self.bot.personality_manager.clear_channel_personality(ctx.channel.id):
+            await ctx.respond(f"Personality pin removed from #{ctx.channel.name}. Using global personality.")
+        else:
+            await ctx.respond(f"No personality pinned to #{ctx.channel.name}.")
 
 
 def setup(bot):
