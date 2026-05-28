@@ -11,9 +11,8 @@ class ConversationSimulator:
         self.client = AsyncOpenAI(api_key=openai_api_key)
         self.model_chat = model_chat
 
-    async def simulate_conversation(self, channel, topic, personality_indices, turns, bot, channel_file_contents):
-        
-        discord_history = await fetch_message_history(channel, bot, channel_file_contents, include_file_content=True)
+    async def simulate_conversation(self, channel, topic, personality_indices, turns, bot):
+        discord_history = await fetch_message_history(channel, bot)
 
         # Read personalities from file
         personalities = personality_manager.read_personalities_from_file()

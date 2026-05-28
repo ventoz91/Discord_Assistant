@@ -61,7 +61,7 @@ class FunCog(commands.Cog):
         api_key = os.getenv("OPENAI_API_KEY")
         simulator = ConversationSimulator(api_key, os.getenv("MODEL_CHAT", "gpt-3.5-turbo"))
         conversation_lines = await simulator.simulate_conversation(
-            ctx.channel, topic, personality_indices, 6, self.bot, self.bot.channel_file_contents
+            ctx.channel, topic, personality_indices, 6, self.bot
         )
         first = True
         for line in conversation_lines:

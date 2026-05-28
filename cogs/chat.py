@@ -6,7 +6,7 @@ import aiohttp
 from colorama import Fore
 from chatbotfunc.utils import fetch_message_history, async_chat_completion, split_message, format_error_message, encode_discord_image
 from AIfunc.responses import analyze_image, generate_gpt_response
-from ragfunc.memory import async_store_message, async_retrieve
+from ragfunc.memory import async_store_message, async_retrieve, async_store_document
 
 RATE_LIMIT = 0.5
 
@@ -34,13 +34,27 @@ class ChatCog(commands.Cog):
         return len(human_mentions) == 0
 
     @staticmethod
-    async def _download_text_file(url: str):
+    async def _download_file_as_text(url: str, filename: str) -> str | None:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
-                if response.status == 200:
-                    return await response.text()
-                print(Fore.RED + f"Error downloading text file: HTTP status {response.status}" + Fore.RESET)
+                if response.status != 200:
+                    print(Fore.RED + f"Error downloading file: HTTP {response.status}" + Fore.RESET)
+                    return None
+                raw = await response.read()
+        if filename.lower().endswith('.pdf'):
+            try:
+                import io
+                from pypdf import PdfReader
+                reader = PdfReader(io.BytesIO(raw))
+                pages = [page.extract_text() or "" for page in reader.pages]
+                return "\n\n".join(p for p in pages if p.strip()) or None
+            except Exception as e:
+                print(Fore.RED + f"PDF extraction error: {e}" + Fore.RESET)
                 return None
+        try:
+            return raw.decode('utf-8', errors='replace')
+        except Exception:
+            return None
 
     @commands.Cog.listener()
     async def on_ready(self):
@@ -51,9 +65,7 @@ class ChatCog(commands.Cog):
     async def on_reaction_add(self, reaction, user):
         if reaction.message.author != self.bot.user or user == self.bot.user:
             return
-        messages = await fetch_message_history(
-            reaction.message.channel, self.bot, self.bot.channel_file_contents, include_file_content=False
-        )
+        messages = await fetch_message_history(reaction.message.channel, self.bot)
         last_bot_message = next((m for m in messages if m['role'] == 'assistant'), None)
         if not last_bot_message:
             return
@@ -85,17 +97,6 @@ class ChatCog(commands.Cog):
         if self.bot.active_games.get(message.channel.id, False):
             return
 
-        if 'main.py' in message.content.lower():
-            try:
-                with open('main.py', 'r') as f:
-                    source = f.read()
-                self.bot.channel_file_contents[message.channel.id] = (
-                    source + "\n" + self.bot.channel_file_contents.get(message.channel.id, "")
-                )
-                print("Source code added to chat history")
-            except Exception as e:
-                print(Fore.RED + f"Error reading source file: {e}" + Fore.RESET)
-
         image_processed = False
         if message.attachments and self._should_respond(message):
             for attachment in message.attachments:
@@ -104,9 +105,7 @@ class ChatCog(commands.Cog):
                         print(f"Processing image: {attachment.filename}")
                         base64_image = await encode_discord_image(attachment.url)
                         instructions = message.content if message.content else "What's in this image?"
-                        message_history = await fetch_message_history(
-                            message.channel, self.bot, self.bot.channel_file_contents
-                        )
+                        message_history = await fetch_message_history(message.channel, self.bot)
                         analysis_result = await analyze_image(
                             base64_image, instructions, message_history, self.bot.chatgpt_behaviour
                         )
@@ -120,14 +119,20 @@ class ChatCog(commands.Cog):
         if image_processed:
             return
 
+        # Store any supported text/code/pdf attachments in RAG and surface
+        # their content directly in the immediate response.
         text_file_content = None
         if message.attachments:
             for attachment in message.attachments:
-                if attachment.filename.lower().endswith('.txt'):
-                    text_file_content = await self._download_text_file(attachment.url)
+                fname = attachment.filename.lower()
+                if any(fname.endswith(ext) for ext in ('.txt', '.py', '.md', '.js', '.ts', '.jsx', '.tsx',
+                                                        '.json', '.csv', '.yaml', '.yml', '.html', '.css',
+                                                        '.sh', '.toml', '.ini', '.cfg', '.pdf')):
+                    text_file_content = await self._download_file_as_text(attachment.url, attachment.filename)
                     if text_file_content:
-                        self.bot.channel_file_contents[message.channel.id] = text_file_content
-                        print("Text file processed and added to chat history")
+                        await async_store_document(message.channel.id, text_file_content, source=attachment.filename)
+                        print(f"Stored {attachment.filename} in RAG memory")
+                    break
 
         if self._should_respond(message):
             await async_store_message(message.channel.id, "user", message.content, message.id)
@@ -138,10 +143,8 @@ class ChatCog(commands.Cog):
                 rag_msgs = await async_retrieve(message.channel.id, query, k=3, doc_type="message")
                 rag_context = rag_docs + rag_msgs or None
 
-                message_history = await fetch_message_history(
-                    message.channel, self.bot, self.bot.channel_file_contents
-                )
-                combined_content = message.content + "\n" + (text_file_content or "")
+                message_history = await fetch_message_history(message.channel, self.bot)
+                combined_content = message.content + ("\n" + text_file_content if text_file_content else "")
                 message_history.append({"role": "user", "content": combined_content})
                 gpt_response = await generate_gpt_response(
                     message_history, self.bot.chatgpt_behaviour, rag_context=rag_context
