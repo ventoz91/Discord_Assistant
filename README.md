@@ -1,10 +1,11 @@
 # Discord Bot
 
-A personal Discord bot with GPT chat, image generation and transformation, game server management, and in-channel mini-games.
+A personal Discord bot with GPT chat, image generation and transformation, game server management, in-channel mini-games, and persistent RAG memory.
 
 ## Features
 
 - **GPT chat** — responds in allowed channels using a configurable personality/system prompt; always responds to direct @mentions
+- **RAG memory** — per-channel persistent memory backed by ChromaDB; stores chat history and uploaded documents, retrieves semantically relevant context on every response
 - **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`
 - **Image transformation** — native image editing via `!transform` / `/transform`
 - **Image analysis** — describe attached images in chat, or search and describe via `!image` / `/image`
@@ -99,6 +100,16 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 | — | `/personality list` | List personalities |
 | — | `/personality remove <n>` | Remove personality at index n |
 
+### Memory (RAG)
+
+| Prefix | Slash | Description |
+|---|---|---|
+| `!learn <text>` | `/learn` | Store text directly in memory |
+| `!learn` + attachment | `/learn` + file | Store a file in memory (.txt, .py, .md, .pdf, .json, .csv, and more) |
+| `!memory` | `/memory` | Show how many chunks are stored for this channel |
+| `!cleardocs` | `/cleardocs` | Remove all stored documents (keeps message history) |
+| `!clearall` | — | Wipe all memory for this channel (requires Manage Messages) |
+
 ### Images
 
 | Prefix | Slash | Description |
@@ -139,16 +150,17 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 ```
 main.py                     — bot init, shared state, load_extension calls, bot.run()
 cogs/
-  chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler)
+  chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler + RAG integration)
   images.py                 — generate, transform, image, variation commands
   personality.py            — prefix + slash personality commands
   games.py                  — game (Tic-Tac-Toe), snake commands
   servers.py                — minecraft, valheim, enshrouded server commands
   fun.py                    — prompt, simulate, sandwich commands
+  rag.py                    — learn, memory, cleardocs, clearall commands
 AIfunc/
   responses.py              — BASE_SYSTEM_PROMPT constant; OpenAI wrappers:
-                              generate_gpt_response, analyze_image,
-                              generate_image, transform_image
+                              generate_gpt_response (accepts rag_context),
+                              analyze_image, generate_image, transform_image
   simulate.py               — ConversationSimulator
 chatbotfunc/
   utils.py                  — fetch_message_history, async_chat_completion,
@@ -160,11 +172,32 @@ gamefunc/
   valheim.py                — ValheimServer, EnshroudedServer (Windows batch/exe)
   tictactoe.py              — play_tic_tac_toe
   snake.py                  — SnakeGame
+ragfunc/
+  memory.py                 — ChannelMemory (ChromaDB wrapper); store_message, store_document,
+                              retrieve, clear methods; async helpers
 funfunc/
   image_search.py           — Google Custom Search API wrapper
   prompt.py                 — GPTSearchPrompt
   sandwich.py               — random sandwich generator
+data/
+  chroma/                   — ChromaDB persistent vector store (auto-created, gitignored)
 ```
+
+## RAG Memory System
+
+Every message the bot processes is stored in a per-channel ChromaDB collection on disk (`data/chroma/`). Before generating any response, the bot runs a semantic similarity search and injects the most relevant past messages and document chunks into the system prompt. This gives the bot long-term memory without bloating the token window with raw history.
+
+**How context works per response:**
+- Last `HISTORYLENGTH` messages (default: 30) fetched directly from Discord — the immediate conversation window
+- Top `RAG_MESSAGE_CONTEXT` semantically relevant past messages retrieved from ChromaDB (default: 50) — long-term memory
+- Top 5 relevant document chunks from any stored files — knowledge base
+
+**Supported file types for `!learn`:**
+`.txt` `.py` `.md` `.js` `.ts` `.jsx` `.tsx` `.json` `.csv` `.yaml` `.yml` `.html` `.css` `.sh` `.toml` `.ini` `.cfg` `.pdf`
+
+PDFs are text-extracted via `pypdf`. Scanned/image-only PDFs won't have extractable text.
+
+**Memory is per-channel** — each Discord channel has its own isolated collection. `!clearall` only affects the current channel.
 
 ## Personality System
 
@@ -184,3 +217,5 @@ Each entry in `personalities.env` is a short character descriptor injected at th
 - **Valheim / Enshrouded commands** are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
 - **`!variation`** is currently broken — the OpenAI variations endpoint does not support gpt-image-1.
 - **`!transform last`** requires at least one `!generate` call in the current session (bytes are not persisted across restarts).
+- **Scanned PDFs** — `!learn` can only extract text from text-based PDFs. Image-only scans won't work.
+- **Re-uploading files** — if a file was stored before the chunk size was increased to 3000 chars, re-upload it with `!learn` to get better chunking.
