@@ -58,10 +58,7 @@ class ChatCog(commands.Cog):
             return
         emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
         prompt = f"{user.display_name} has reacted to your last message with: {emoji_name}. What is your response? Stay in character"
-        messages += [
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": "What is your reply?"},
-        ]
+        messages.append({"role": "user", "content": prompt})
         try:
             max_tokens = int(os.getenv("MAX_TOKENS", 500))
             response = await async_chat_completion(
