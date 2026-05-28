@@ -59,6 +59,10 @@ class MinecraftPanel(discord.ui.View):
 
     # ── Vanilla row (row=0) ───────────────────────────────────────────────────
 
+    @discord.ui.button(label='Vanilla', style=discord.ButtonStyle.secondary, row=0, disabled=True, custom_id='label_vanilla')
+    async def label_vanilla(self, button, interaction):
+        pass
+
     @discord.ui.button(label='▶ Start',    style=discord.ButtonStyle.success,   row=0, custom_id='start_vanilla')
     async def start_vanilla(self, button, interaction):
         await interaction.response.defer()
@@ -98,6 +102,10 @@ class MinecraftPanel(discord.ui.View):
         await interaction.followup.send(f'**Vanilla:** {result}', ephemeral=True)
 
     # ── Modded row (row=1) ────────────────────────────────────────────────────
+
+    @discord.ui.button(label='Modded', style=discord.ButtonStyle.secondary, row=1, disabled=True, custom_id='label_modded')
+    async def label_modded(self, button, interaction):
+        pass
 
     @discord.ui.button(label='▶ Start',    style=discord.ButtonStyle.success,   row=1, custom_id='start_modded')
     async def start_modded(self, button, interaction):
