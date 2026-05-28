@@ -22,6 +22,8 @@ A single **`.env`** file at the project root holds all configuration:
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
 - `HISTORYLENGTH` — Number of recent messages to fetch directly from Discord (default: 30)
 - `RAG_MESSAGE_CONTEXT` — Number of semantically relevant past messages to retrieve from ChromaDB per response (default: 50)
+- `MESSAGE_TTL_DAYS` — Days before a stored chat message is excluded from retrieval (default: 30). Documents never expire.
+- `DISTANCE_THRESHOLD` — Cosine distance cutoff for RAG retrieval (default: 0.8). Results above this are dropped.
 - `MAX_TOKENS` — Max completion tokens for responses
 - `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
 - `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)
@@ -54,6 +56,8 @@ A single **`.env`** file at the project root holds all configuration:
 
 On startup, `bot.chatgpt_behaviour` is set via `PersonalityManager.get_active()`, which reads `ACTIVE_PERSONALITY=` from `.env` (falls back to index 0 if not yet set). Any `!change` or `/personality change` call updates `bot.chatgpt_behaviour` and persists the selection to `.env` via `set_active()`.
 
+Per-channel pins override the global personality for a specific channel. `on_message` resolves `channel_behaviour = get_channel_personality(channel_id) or bot.chatgpt_behaviour` and passes that to `generate_gpt_response` and `analyze_image`. Pins are stored in `data/channel_personalities.json`.
+
 ## RAG Memory System
 
 Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualifying message the bot processes in an allowed channel is stored. Before each response, a semantic search retrieves relevant past messages and document chunks, which are injected into the system prompt as `RELEVANT CONTEXT FROM MEMORY`.
@@ -66,7 +70,9 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 
 **Quality filter:** user messages are checked before storage — messages under 8 chars, pure emoji/URL content, and known filler phrases (`lol`, `ok`, `yeah`, etc.) are discarded. Bot responses always stored.
 
-**Retrieval:** candidates retrieved up to the configured k, then filtered by cosine distance threshold (`DISTANCE_THRESHOLD = 0.8` in `memory.py`). Results above threshold are dropped. Tune this constant to adjust noise vs. recall.
+**Retrieval:** candidates retrieved up to the configured k, then filtered by cosine distance threshold (`DISTANCE_THRESHOLD`, read from `.env`, default 0.8). Results above threshold are dropped. Tune via `.env` to adjust noise vs. recall.
+
+**Message expiry:** chat messages tagged with `expires_at = now + MESSAGE_TTL_DAYS * 86400` at write time. Retrieval filters out expired entries in Python (safe for legacy entries without the field). Documents (`expires_at=0`) never expire.
 
 **Deduplication:** all stored entries use stable Discord message IDs as ChromaDB document IDs. ChromaDB upsert semantics ensure re-processing the same message never creates duplicates.
 
@@ -85,7 +91,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 
 - **`cogs/chat.py`** — `ChatCog`: `on_message` (GPT chat handler + RAG storage/retrieval), `on_reaction_add`, `on_ready`, `on_command_error`. Contains `_should_respond()` logic: always responds to direct @mentions, responds in `CHANNEL_IDS` channels unless message is directed at a specific human. Supported file attachments are stored in RAG via `async_store_document`; the bot's response is stored via `async_store_message`.
 - **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
-- **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list` prefix commands and `/personality` slash command group (new/change/list/remove).
+- **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe) and `snake` commands.
 - **`cogs/servers.py`** — `ServersCog`: `minecraft` bridge command; Valheim prefix commands + `/valheim start|stop|status` slash group; Enshrouded prefix commands + `/enshrouded start|stop` slash group.
 - **`cogs/fun.py`** — `FunCog`: `prompt` and `sandwich` bridge commands; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
@@ -103,7 +109,7 @@ Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and 
 - **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]`), `analyze_image()`, `generate_image()`, `transform_image()`.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`.
 - **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()`.
-- **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` reads `ACTIVE_PERSONALITY=` on startup; `set_active()` persists the selected personality back to `.env`.
+- **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` / `set_active()` persist the selected personality via `ACTIVE_PERSONALITY=`. `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` manage per-channel pins stored in `data/channel_personalities.json`.
 - **`ragfunc/memory.py`** — `ChannelMemory` class (ChromaDB wrapper); `store_message()` (with quality filter via `_should_store()`), `store_document()`, `retrieve()` (with `DISTANCE_THRESHOLD` cosine filter), `clear_documents()`, `clear_all()`; async helpers: `async_store_message`, `async_store_document`, `async_retrieve`, `async_count`, `async_clear_documents`, `async_clear_all`.
 - **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (not the `mcrcon` library, which uses `signal.alarm()` and crashes outside the main thread).
 - **`gamefunc/minecraft_panel.py`** — `MinecraftPanel` Discord UI with live status embed and button enable/disable rules.
@@ -155,6 +161,8 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
 | `!prompt <topic>` | `/prompt` | Generate a Google search URL for a topic |
 | `!sandwich` | `/sandwich` | Generate a random sandwich |
+| `!pin [n]` | `/personality pin [n]` | Pin personality #n to this channel |
+| `!unpin` | `/personality unpin` | Remove channel personality pin |
 | `!learn [text]` | `/learn` | Store text or file in RAG memory |
 | `!memory` | `/memory` | Show memory stats for this channel |
 | `!summarize` | `/summarize` | TL;DR of recent conversation in this channel |
