@@ -5,10 +5,9 @@ A personal Discord bot with GPT chat, image generation and transformation, voice
 ## Features
 
 - **GPT chat** — responds in allowed channels using a configurable personality/system prompt
-- **Image generation** — DALL-E / gpt-image-1 image generation via `!generate`
+- **Image generation** — gpt-image-1 image generation via `!generate`
 - **Image transformation** — native image editing via `!transform` (uses `gpt-image-1` images.edit API directly)
 - **Image analysis** — describe attached images in chat, or search and describe via `!image`
-- **Voice TTS** — speaks responses aloud when in a voice channel; also transcribes uploaded audio recordings via Azure Speech SDK
 - **Personality system** — multiple switchable system prompts managed at runtime
 - **Conversation simulation** — two bot personalities argue a topic via `!simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`) and Snake (`!snake`) playable in Discord
@@ -17,7 +16,6 @@ A personal Discord bot with GPT chat, image generation and transformation, voice
 ## Requirements
 
 - Python 3.10+
-- ffmpeg (for voice TTS)
 - kitty terminal (for Minecraft server launch on Linux)
 
 Install Python dependencies:
@@ -57,15 +55,8 @@ This file is managed at runtime by `!new`, `!list`, and `/personality` slash com
 
 ```bash
 source .venv/bin/activate
-
-# Discord bot
 python main.py
-
-# Voice upload server (optional, separate process)
-python flaskserv.py
 ```
-
-The Flask server (`flaskserv.py`) accepts audio uploads at its web interface, saves them to `./recordings/`, and the bot's watchdog picks them up automatically for voice TTS.
 
 ## Commands
 
@@ -89,15 +80,6 @@ The Flask server (`flaskserv.py`) accepts audio uploads at its web interface, sa
 | `!transform <instructions>` | Transform an attached image using gpt-image-1 native editing |
 | `!transform last <instructions>` | Transform the most recently generated image |
 | `!image <query>` | Search Google Images and describe the result |
-
-### Voice
-
-| Command | Description |
-|---|---|
-| `!join` | Join the author's voice channel |
-| `!leave` | Leave the current voice channel |
-
-While connected, the bot speaks every GPT response aloud via gTTS + ffmpeg.
 
 ### Games
 
@@ -134,7 +116,7 @@ While connected, the bot speaks every GPT response aloud via gTTS + ffmpeg.
 main.py                     — entry point; all Discord event handlers and bot commands
 AIfunc/
   responses.py              — OpenAI wrappers: generate_gpt_response, analyze_image,
-                              generate_image, transform_image; watchdog for recordings/
+                              generate_image, transform_image
   simulate.py               — ConversationSimulator
 chatbotfunc/
   utils.py                  — fetch_message_history, async_chat_completion
@@ -148,13 +130,10 @@ funfunc/
   image_search.py           — Google Custom Search API wrapper
   prompt.py                 — GPTSearchPrompt
   sandwich.py               — random sandwich generator
-flaskserv.py                — audio upload server
-templates/index.html        — upload frontend
 ```
 
 ## Known Limitations
 
 - **Valheim / Enshrouded commands** are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
 - **`!variation`** is currently broken — the OpenAI variations endpoint does not support gpt-image-1.
-- **Azure Speech SDK key** is hardcoded in `AIfunc/responses.py` and should be moved to `.env`.
 - **`!transform last`** requires at least one `!generate` call in the current session (bytes are not persisted across restarts).

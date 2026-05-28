@@ -1,6 +1,5 @@
 from openai import OpenAI
-from gtts import gTTS
-from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, transform_image, start_monitoring
+from AIfunc.responses import generate_gpt_response, analyze_image, generate_image, transform_image
 from funfunc.image_search import main as search_image
 from funfunc.prompt import GPTSearchPrompt
 from chatbotfunc.utils import fetch_message_history, async_chat_completion
@@ -241,8 +240,7 @@ async def download_text_file(url):
 # Event listener for when the bot is ready
 @bot.event
 async def on_ready():
-    print(f'Logged in as {bot.user.name}') 
-    observer = start_monitoring(bot)
+    print(f'Logged in as {bot.user.name}')
     print(chatgpt_behaviour)
 
 @bot.event
@@ -679,24 +677,6 @@ async def stop_enshrouded(ctx):
 ######For Fun Commands#####
 ###########################
     
-@bot.command()
-async def join(ctx):
-    # Check if the author is connected to a voice channel
-    if ctx.author.voice is None:
-        await ctx.send("You are not connected to a voice channel.")
-        return
-
-    channel = ctx.author.voice.channel
-    if ctx.voice_client is not None:
-        return await ctx.voice_client.move_to(channel)
-
-    await channel.connect()
-
-# Command to leave a voice channel
-@bot.command()
-async def leave(ctx):
-    await ctx.voice_client.disconnect()
-
 #command will create a prompt for a google search then send a link to the google search
 @bot.command()
 async def prompt(ctx, *, topic: str):
@@ -838,24 +818,6 @@ async def on_message(message):
             for chunk in split_message(gpt_response):
                 await message.channel.send(chunk)
                 time.sleep(RATE_LIMIT)
-
-    # TTS response in voice channel
-    voice_client = discord.utils.get(bot.voice_clients, guild=message.guild)
-    if voice_client and voice_client.is_connected():
-        if message.author != bot.user and not message.content.startswith(bot.command_prefix):
-            try:
-                print("Fetching message history for TTS")
-                message_history = await fetch_message_history(message.channel, bot, channel_file_contents)
-                message_history.append({"role": "user", "content": message.content})
-                gpt_response = await generate_gpt_response(message_history, chatgpt_behaviour)
-                tts = gTTS(gpt_response, lang='en')
-                tts_file = 'tts_response.mp3'
-                tts.save(tts_file)
-                if not voice_client.is_playing():
-                    source = discord.FFmpegPCMAudio(executable="ffmpeg", source=tts_file)
-                    voice_client.play(source, after=lambda x: os.remove(tts_file))
-            except Exception as e:
-                print(f"Error in generating or vocalizing GPT response: {e}")
 
     await bot.process_commands(message)
 
