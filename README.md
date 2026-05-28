@@ -12,6 +12,7 @@ A personal Discord bot with GPT chat, image generation and transformation, voice
 - **Conversation simulation** — two bot personalities argue a topic via `!simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`) and Snake (`!snake`) playable in Discord
 - **Game server management** — start/stop/restart Minecraft (vanilla & modded), Valheim, and Enshrouded servers
+- **Cog-based architecture** — each feature domain lives in its own `cogs/` module, hot-reloadable at runtime
 
 ## Requirements
 
@@ -132,16 +133,24 @@ python main.py
 ## Architecture
 
 ```
-main.py                     — entry point; all Discord event handlers and bot commands
+main.py                     — bot init, shared state, load_extension calls, bot.run()
+cogs/
+  chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler)
+  images.py                 — generate, transform, image, variation commands
+  personality.py            — prefix + slash personality commands
+  games.py                  — game (Tic-Tac-Toe), snake commands
+  servers.py                — minecraft, valheim, enshrouded server commands
+  fun.py                    — prompt, simulate, sandwich commands
 AIfunc/
   responses.py              — OpenAI wrappers: generate_gpt_response, analyze_image,
                               generate_image, transform_image
   simulate.py               — ConversationSimulator
 chatbotfunc/
-  utils.py                  — fetch_message_history, async_chat_completion
+  utils.py                  — fetch_message_history, async_chat_completion,
+                              split_message, format_error_message, encode_discord_image
   personalitymanager.py     — PersonalityManager (reads/writes personalities.env)
 gamefunc/
-  minecraft.py              — MinecraftServer (env-based config, async RCON)
+  minecraft.py              — MinecraftServer (env-based config, thread-safe async RCON)
   minecraft_panel.py        — MinecraftPanel Discord UI (buttons, live status)
   valheim.py                — ValheimServer, EnshroudedServer (Windows batch/exe)
   tictactoe.py              — play_tic_tac_toe

@@ -45,38 +45,49 @@ Two env files are required at the project root:
 
 ## Architecture Overview
 
-`main.py` is the entry point and contains all Discord event handlers and bot commands. Everything else is organized into modules:
+`main.py` is the entry point (~30 lines). It initialises the bot, sets shared state on the bot object, loads all Cogs via `bot.load_extension()`, and calls `bot.run()`. All commands and event handlers live in `cogs/`.
 
-### Module Layout
+### Cog Layout
+
+- **`cogs/chat.py`** — `ChatCog`: `on_message` (GPT chat handler), `on_reaction_add`, `on_ready`. Contains `_should_respond()` channel-filtering logic and text/image attachment handling.
+- **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image`, `variation` commands.
+- **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list` prefix commands and `/personality` slash command group.
+- **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe) and `snake` commands.
+- **`cogs/servers.py`** — `ServersCog`: `minecraft` panel, Valheim and Enshrouded commands.
+- **`cogs/fun.py`** — `FunCog`: `prompt`, `simulate`, `sandwich` commands.
+
+### Support Modules
 
 - **`AIfunc/responses.py`** — Core OpenAI wrappers: `generate_gpt_response()`, `analyze_image()`, `generate_image()`, `transform_image()`.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`: simulates a back-and-forth conversation between two bot personalities on a given topic.
-- **`chatbotfunc/utils.py`** — `fetch_message_history()` (fetches Discord channel history as OpenAI message format) and `async_chat_completion()` (wraps `openai.chat.completions.create` in a thread).
-- **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personalities from `personalities.env`. Personalities are system prompts stored one per line.
+- **`chatbotfunc/utils.py`** — Shared helpers: `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()`.
+- **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personalities from `personalities.env`.
 - **`gamefunc/`** — Minecraft server management (`minecraft.py`), Minecraft button panel (`minecraft_panel.py`), Valheim/Enshrouded server management (`valheim.py`), Tic-Tac-Toe (`tictactoe.py`), Snake (`snake.py`).
 - **`funfunc/`** — Image search (`image_search.py`), Google search prompt generation (`prompt.py`), random sandwich generator (`sandwich.py`).
 
+### Shared State
+
+All mutable state is stored on the bot object in `main.py` and accessed by Cogs via `self.bot`:
+
+- `bot.chatgpt_behaviour` — Active system prompt string; changed at runtime by `!change` / `/personality change`
+- `bot.active_games` — `dict[channel_id, bool]` to prevent message handling during in-channel games
+- `bot.channel_file_contents` — `dict[channel_id, str]` stores uploaded text file content injected into chat history
+- `bot.last_generated_image_bytes` — Raw PNG bytes of the last `!generate` result; used by `!transform last`
+- `bot.personality_manager` — `PersonalityManager` instance
+
 ### Message Flow
 
-`on_message` in `main.py` is the main handler. It:
-1. Ignores bot's own messages and `!`-prefixed commands (routes those to `bot.process_commands`)
+`on_message` in `ChatCog`:
+1. Ignores bot's own messages; returns early for `!`-prefixed commands (bot handles routing automatically)
 2. Skips channels with active games
 3. Processes image attachments via `analyze_image()` if present
-4. Processes `.txt` file attachments by storing content in `channel_file_contents[channel_id]`
-5. Calls `should_bot_respond_to_message()` to check if the channel is in `CHANNEL_IDS` and no human @mentions are present
+4. Processes `.txt` file attachments by storing content in `bot.channel_file_contents[channel_id]`
+5. Calls `_should_respond()` to check if the channel is in `CHANNEL_IDS` and no human @mentions are present
 6. Fetches history via `fetch_message_history()`, appends the user message, calls `generate_gpt_response()`, and sends via `split_message()`
-7. Sends the response via `split_message()`
 
 ### Command Prefix vs Slash Commands
 
-The bot uses both `!` prefix commands (`@bot.command()`) and slash commands (`@percmd.command()` via `bot.create_group("personality")`). The personality slash commands under `/personality` duplicate some `!` prefix commands — both coexist.
-
-### Key Globals in `main.py`
-
-- `chatgpt_behaviour` — Active system prompt string; changed at runtime by `!change` / `/personality change`
-- `active_games` — `dict[channel_id, bool]` to prevent message handling during in-channel games
-- `channel_file_contents` — `dict[channel_id, str]` stores uploaded text file content injected into chat history
-- `last_generated_image_bytes` — Raw PNG bytes of the last `!generate` result; used by `!transform last`
+The bot uses both `!` prefix commands (`@commands.command()`) and slash commands (`discord.SlashCommandGroup` defined as a class attribute on `PersonalityCog`). The `/personality` slash commands duplicate some `!` prefix commands — both coexist.
 
 ### Bot Commands Reference
 
