@@ -31,15 +31,12 @@ pip install -r requirements.txt
 
 ## Environment Setup
 
-Two env files are required at the project root.
-
-**`.env`**
+A single **`.env`** file at the project root holds all configuration.
 
 ```env
 DISCORD_TOKEN=your_discord_bot_token
 OPENAI_API_KEY=your_openai_api_key
 MODEL_CHAT=gpt-5.4
-PERSONALITY=a short character descriptor e.g. "a sarcastic assistant named Soupy Dafoe obsessed with soup"
 CHANNEL_IDS=123456789,987654321
 HISTORYLENGTH=30
 RAG_MESSAGE_CONTEXT=50
@@ -66,16 +63,14 @@ VALHEIM_PASSWORD=your_password
 VALHEIM_PORT=2456
 VALHEIM_STEAM_DIR=I:\SteamLibrary
 ENSHROUDED_EXE=I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe
-```
 
-**`personalities.env`** — one short personality descriptor per line:
-
-```env
+# Personalities — one line per personality, same key repeated
 PERSONALITY=a sarcastic assistant named Soupy Dafoe obsessed with soup
 PERSONALITY=an enthusiastic valley girl with a secret PhD in Astrophysics named Tiffany
+# ACTIVE_PERSONALITY is written automatically when you use !change or /personality change
 ```
 
-Each entry is a short character description injected into `BASE_SYSTEM_PROMPT` in `AIfunc/responses.py`. The base prompt handles all platform rules (Discord context, concise responses, code formatting, history handling) so personalities only need to describe the character. Managed at runtime via `!new`, `!list`, and `/personality` slash commands.
+Personalities are short character descriptors injected into `BASE_SYSTEM_PROMPT`. The base prompt handles all platform rules so descriptors only need to describe the character. The bot starts on the last selected personality (`ACTIVE_PERSONALITY=` written to `.env` automatically on each change). Managed at runtime via `!new`, `!list`, `!change`, and `/personality` slash commands.
 
 ## Running
 
@@ -107,6 +102,7 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 | `!learn <text>` | `/learn` | Store text directly in memory |
 | `!learn` + attachment | `/learn` + file | Store a file in memory (.txt, .py, .md, .pdf, .json, .csv, and more) |
 | `!memory` | `/memory` | Show how many chunks are stored for this channel |
+| `!summarize` | `/summarize` | TL;DR of the recent conversation in this channel |
 | `!cleardocs` | `/cleardocs` | Remove all stored documents (keeps message history) |
 | `!clearall` | — | Wipe all memory for this channel (requires Manage Messages) |
 
@@ -186,12 +182,18 @@ data/
 
 ## RAG Memory System
 
-Every message the bot processes is stored in a per-channel ChromaDB collection on disk (`data/chroma/`). Before generating any response, the bot runs a semantic similarity search and injects the most relevant past messages and document chunks into the system prompt. This gives the bot long-term memory without bloating the token window with raw history.
+Every qualifying message the bot processes is stored in a per-channel ChromaDB collection on disk (`data/chroma/`). Before generating any response, the bot runs a semantic similarity search and injects the most relevant past messages and document chunks into the system prompt. This gives the bot long-term memory without bloating the token window with raw history.
 
 **How context works per response:**
 - Last `HISTORYLENGTH` messages (default: 30) fetched directly from Discord — the immediate conversation window
-- Top `RAG_MESSAGE_CONTEXT` semantically relevant past messages retrieved from ChromaDB (default: 50) — long-term memory
-- Top 5 relevant document chunks from any stored files — knowledge base
+- Top `RAG_MESSAGE_CONTEXT` semantically relevant past messages retrieved from ChromaDB (default: 50), filtered by cosine distance — long-term memory
+- Top 5 relevant document chunks from any stored files, filtered by cosine distance — knowledge base
+
+**Quality filter:** low-value user messages (under 8 chars, pure emoji, known filler like `lol` / `ok` / `yeah`) are discarded before storage. Bot responses and image analysis results are always stored.
+
+**Deduplication:** stored entries use Discord message IDs as ChromaDB document IDs — re-processing the same message never creates duplicates.
+
+**Image analysis:** when you share an image in an allowed channel, the bot's description is stored in RAG so it can reference past images in future conversations.
 
 **Supported file types for `!learn`:**
 `.txt` `.py` `.md` `.js` `.ts` `.jsx` `.tsx` `.json` `.csv` `.yaml` `.yml` `.html` `.css` `.sh` `.toml` `.ini` `.cfg` `.pdf`
@@ -208,10 +210,12 @@ PDFs are text-extracted via `pypdf`. Scanned/image-only PDFs won't have extracta
 - History handling (focus on recent, use history as context)
 - Stay in character directive
 
-Each entry in `personalities.env` is a short character descriptor injected at the `{personality}` slot. Examples:
+Each `PERSONALITY=` line in `.env` is a short character descriptor injected at the `{personality}` slot. Examples:
 - `a sarcastic, reluctant assistant named Soupy Dafoe preoccupied with soup`
 - `Professor Hubert J. Farnsworth from Futurama — exclamatory, brilliantly absent-minded`
 - `a DnD-style Sorceress who must roll a dice and announce the result before any action`
+
+The active personality persists across restarts — `ACTIVE_PERSONALITY=` is written to `.env` automatically on every `!change` or `/personality change`.
 
 ## Known Limitations
 
@@ -219,3 +223,4 @@ Each entry in `personalities.env` is a short character descriptor injected at th
 - **`!transform last`** requires at least one `!generate` call in the current session (bytes are not persisted across restarts).
 - **Scanned PDFs** — `!learn` can only extract text from text-based PDFs. Image-only scans won't work.
 - **Re-uploading files** — if a file was stored before the chunk size was increased to 3000 chars, re-upload it with `!learn` to get better chunking.
+- **RAG distance threshold** — the default `DISTANCE_THRESHOLD = 0.8` in `ragfunc/memory.py` may need tuning per use case. If relevant context is being dropped, raise it; if too much noise is coming through, lower it.
