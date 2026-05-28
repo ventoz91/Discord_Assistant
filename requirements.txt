@@ -19,3 +19,4 @@ requests==2.32.5
 
 py-cord
 chromadb
+pypdf

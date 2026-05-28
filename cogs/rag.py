@@ -1,7 +1,13 @@
 import discord
 from discord.ext import commands
 import aiohttp
+import asyncio
+import io
 from ragfunc.memory import async_store_document, async_count, async_clear_documents, async_clear_all
+
+TEXT_EXTENSIONS = {'.txt', '.py', '.md', '.js', '.ts', '.jsx', '.tsx', '.json', '.csv', '.yaml', '.yml', '.html', '.css', '.sh', '.toml', '.ini', '.cfg'}
+PDF_EXTENSIONS = {'.pdf'}
+ALL_SUPPORTED = TEXT_EXTENSIONS | PDF_EXTENSIONS
 
 
 class RAGCog(commands.Cog):
@@ -9,21 +15,39 @@ class RAGCog(commands.Cog):
         self.bot = bot
 
     @staticmethod
-    async def _download_text(url: str) -> str | None:
+    async def _download_bytes(url: str) -> bytes | None:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
-                if resp.status == 200:
-                    return await resp.text()
-                return None
+                return await resp.read() if resp.status == 200 else None
+
+    @staticmethod
+    def _pdf_to_text(pdf_bytes: bytes) -> str:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(pdf_bytes))
+        pages = [page.extract_text() or "" for page in reader.pages]
+        return "\n\n".join(p for p in pages if p.strip())
+
+    async def _file_to_text(self, url: str, filename: str) -> str | None:
+        ext = '.' + filename.rsplit('.', 1)[-1].lower() if '.' in filename else ''
+        raw = await self._download_bytes(url)
+        if raw is None:
+            return None
+        if ext in PDF_EXTENSIONS:
+            return await asyncio.to_thread(self._pdf_to_text, raw)
+        try:
+            return raw.decode('utf-8', errors='replace')
+        except Exception:
+            return None
 
     # ── !learn / /learn ───────────────────────────────────────────────────────
 
     @commands.command(name="learn")
     async def learn_prefix(self, ctx, *, text: str = None):
-        """Store text or an attached .txt file as a searchable document."""
+        """Store text or an attached file as a searchable document."""
         content, source = await self._resolve_learn_input(ctx.message.attachments, text, None)
         if content is None:
-            await ctx.send("Provide some text or attach a `.txt` file.")
+            exts = ', '.join(sorted(ALL_SUPPORTED))
+            await ctx.send(f"Provide some text or attach a supported file ({exts}).")
             return
         await self._do_learn(ctx, content, source)
 
@@ -32,23 +56,26 @@ class RAGCog(commands.Cog):
         self,
         ctx,
         text: discord.Option(str, "Text to store", required=False) = None,
-        file: discord.Option(discord.Attachment, "Text file (.txt) to store", required=False) = None,
+        file: discord.Option(discord.Attachment, "File to store (.txt, .py, .pdf, etc.)", required=False) = None,
     ):
         await ctx.defer()
         content, source = await self._resolve_learn_input([], text, file)
         if content is None:
-            await ctx.respond("Provide some text or attach a `.txt` file.")
+            exts = ', '.join(sorted(ALL_SUPPORTED))
+            await ctx.respond(f"Provide some text or attach a supported file ({exts}).")
             return
         await self._do_learn(ctx, content, source, slash=True)
 
     async def _resolve_learn_input(self, attachments, text, slash_file):
         if slash_file is not None:
-            if not slash_file.filename.lower().endswith('.txt'):
+            ext = '.' + slash_file.filename.rsplit('.', 1)[-1].lower() if '.' in slash_file.filename else ''
+            if ext not in ALL_SUPPORTED:
                 return None, None
-            return await self._download_text(slash_file.url), slash_file.filename
+            return await self._file_to_text(slash_file.url, slash_file.filename), slash_file.filename
         for att in attachments:
-            if att.filename.lower().endswith('.txt'):
-                return await self._download_text(att.url), att.filename
+            ext = '.' + att.filename.rsplit('.', 1)[-1].lower() if '.' in att.filename else ''
+            if ext in ALL_SUPPORTED:
+                return await self._file_to_text(att.url, att.filename), att.filename
         if text:
             return text, "text"
         return None, None
