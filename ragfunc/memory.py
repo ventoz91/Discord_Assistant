@@ -17,6 +17,35 @@ RECENT_CONTEXT_MESSAGES = 6
 CHUNK_SIZE = 3000
 CHUNK_OVERLAP = 300
 
+# Cosine distance threshold for retrieval (0=identical, 1=unrelated, 2=opposite)
+# Results above this value are dropped as too dissimilar to the query
+DISTANCE_THRESHOLD = 0.8
+
+# Single-word/short filler phrases not worth storing
+_FILLER_PHRASES = {
+    "lol", "lmao", "lmfao", "haha", "hehe", "ok", "okay", "k", "kk",
+    "yes", "no", "yep", "nope", "yeah", "nah", "sure", "true", "false",
+    "wow", "oh", "ah", "uh", "um", "hmm", "hm", "wtf", "omg", "gg",
+    "nice", "cool", "great", "good", "bad", "same", "rip", "f", "oof",
+    "thanks", "ty", "np", "lol.", "ok.", "yeah.", "nah.", "true.", "nice.",
+}
+
+
+def _should_store(content: str) -> bool:
+    """Return False for messages too short or low-value to be worth embedding."""
+    stripped = content.strip()
+    if len(stripped) < 8:
+        return False
+    # Strip mentions, URLs, emoji markup, punctuation — check what's left
+    cleaned = re.sub(r'<[^>]+>', '', stripped)
+    cleaned = re.sub(r'https?://\S+', '', cleaned)
+    cleaned = re.sub(r'[^\w\s]', '', cleaned).strip()
+    if len(cleaned) < 4:
+        return False
+    if cleaned.lower() in _FILLER_PHRASES:
+        return False
+    return True
+
 
 def _get_client():
     os.makedirs(os.path.abspath(_DB_PATH), exist_ok=True)
@@ -71,8 +100,11 @@ class ChannelMemory:
     # ── Writing ───────────────────────────────────────────────────────────────
 
     def store_message(self, role: str, content: str, message_id: int = None):
-        """Store a single Discord message. Skips empty content."""
+        """Store a single Discord message. Skips empty or low-value content."""
         if not content or not content.strip():
+            return
+        # Always store bot responses; filter junk from user messages
+        if role != "assistant" and not _should_store(content):
             return
         doc_id = f"msg-{message_id}" if message_id else f"msg-{int(time.time() * 1000)}"
         try:
@@ -103,7 +135,7 @@ class ChannelMemory:
     # ── Reading ───────────────────────────────────────────────────────────────
 
     def retrieve(self, query: str, k: int = RETRIEVAL_K, doc_type: str = None) -> list[str]:
-        """Return up to k document chunks most relevant to query."""
+        """Return document chunks relevant to query, filtered by distance threshold."""
         count = self._col.count()
         if count == 0:
             return []
@@ -114,8 +146,11 @@ class ChannelMemory:
                 query_texts=[query],
                 n_results=k,
                 where=where,
+                include=["documents", "distances"],
             )
-            return results["documents"][0] if results["documents"] else []
+            docs = results["documents"][0] if results["documents"] else []
+            distances = results["distances"][0] if results["distances"] else []
+            return [doc for doc, dist in zip(docs, distances) if dist <= DISTANCE_THRESHOLD]
         except Exception as e:
             print(f"[memory] retrieve error: {e}")
             return []
