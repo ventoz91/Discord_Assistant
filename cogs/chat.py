@@ -79,7 +79,6 @@ class ChatCog(commands.Cog):
         if message.author == self.bot.user:
             return
         if message.content.startswith(self.bot.command_prefix):
-            await self.bot.process_commands(message)
             return
         if self.bot.active_games.get(message.channel.id, False):
             return
@@ -140,7 +139,6 @@ class ChatCog(commands.Cog):
                     await message.channel.send(chunk)
                     await asyncio.sleep(RATE_LIMIT)
 
-        await self.bot.process_commands(message)
 
 
 def setup(bot):
