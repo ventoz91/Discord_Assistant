@@ -119,6 +119,7 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 | `!transform last <instructions>` | `/transform use_last:True` | Transform the last generated image |
 | `!image <query>` | `/image <query>` | Search Google Images and describe the result |
 
+
 ### Games
 
 | Prefix | Slash | Description |
@@ -215,7 +216,6 @@ Each entry in `personalities.env` is a short character descriptor injected at th
 ## Known Limitations
 
 - **Valheim / Enshrouded commands** are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
-- **`!variation`** is currently broken — the OpenAI variations endpoint does not support gpt-image-1.
 - **`!transform last`** requires at least one `!generate` call in the current session (bytes are not persisted across restarts).
 - **Scanned PDFs** — `!learn` can only extract text from text-based PDFs. Image-only scans won't work.
 - **Re-uploading files** — if a file was stored before the chunk size was increased to 3000 chars, re-upload it with `!learn` to get better chunking.

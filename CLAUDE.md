@@ -78,7 +78,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every message
 ### Cog Layout
 
 - **`cogs/chat.py`** — `ChatCog`: `on_message` (GPT chat handler + RAG storage/retrieval), `on_reaction_add`, `on_ready`, `on_command_error`. Contains `_should_respond()` logic: always responds to direct @mentions, responds in `CHANNEL_IDS` channels unless message is directed at a specific human. Supported file attachments are stored in RAG via `async_store_document`; the bot's response is stored via `async_store_message`.
-- **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image`, `variation` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
+- **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
 - **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list` prefix commands and `/personality` slash command group (new/change/list/remove).
 - **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe) and `snake` commands.
 - **`cogs/servers.py`** — `ServersCog`: `minecraft` bridge command; Valheim prefix commands + `/valheim start|stop|status` slash group; Enshrouded prefix commands + `/enshrouded start|stop` slash group.
@@ -136,6 +136,7 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 | `!transform <instructions>` | `/transform` | Transform an image |
 | `!transform last <instructions>` | `/transform use_last:True` | Transform the last generated image |
 | `!image <query>` | `/image` | Search and display an image with AI description |
+
 | `!change [n]` | — | Switch to personality #n or random |
 | `!new <descriptor>` | — | Add a new personality descriptor |
 | `!list` | — | List available personalities |

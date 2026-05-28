@@ -1,9 +1,7 @@
 import discord
 from discord.ext import commands, bridge
-import openai
 import io
 from io import BytesIO
-import base64
 import aiohttp
 import json
 from PIL import Image
@@ -96,42 +94,6 @@ class ImagesCog(commands.Cog):
     @bridge.bridge_command(name="image", description="Search Google Images and describe the result")
     async def image_cmd(self, ctx, *, query: str):
         await self._image_impl(ctx, query)
-
-    @bridge.bridge_command(description="Generate variations of the last generated image")
-    async def variation(self, ctx):
-        if self.bot.last_generated_image_bytes is None:
-            await ctx.respond("No previous image found. Use !generate first.")
-            return
-        await ctx.defer()
-        try:
-            image = Image.open(io.BytesIO(self.bot.last_generated_image_bytes))
-            buffered = io.BytesIO()
-            image.save(buffered, format="PNG")
-            buffered.seek(0)
-            if buffered.getbuffer().nbytes > 4 * 1024 * 1024:
-                image = image.resize((1024, 1024), Image.ANTIALIAS)
-                buffered = io.BytesIO()
-                image.save(buffered, format="PNG")
-                buffered.seek(0)
-            response = openai.images.create_variation(
-                image=buffered.getvalue(),
-                n=3,
-                size="1024x1024",
-            )
-            if hasattr(response, 'data'):
-                first = True
-                for image_data in response.data:
-                    image_bytes = base64.b64decode(image_data["image"])
-                    with io.BytesIO(image_bytes) as image_file:
-                        image_file.seek(0)
-                        f = discord.File(fp=image_file, filename='variation.png')
-                        if first:
-                            await ctx.respond(file=f)
-                            first = False
-                        else:
-                            await ctx.channel.send(file=f)
-        except Exception as e:
-            await ctx.respond(f"An error occurred: {e}")
 
     # ── Prefix-only transform (attachment handling differs for slash) ──────────
 
