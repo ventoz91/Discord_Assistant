@@ -12,8 +12,12 @@ __pycache__/
 # Bot runtime artifacts
 channel_histories/
 recordings/
+batch_files/
 tts_response.mp3
 tts_output.mp3
+
+# Local notes
+todo.txt
 
 # IDE / machine-specific
 .vscode/

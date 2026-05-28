@@ -1,9 +1,0 @@
-Finish Refactoring for easier continued development
-combine .env and personalities.env
-improve history handling
-possibly add handling for multiple messages at once
-Add databases for personalities that allow for storing information
-Allow multiple channels to contribute to database
-Allow differnt personalities per channel
-fix inconsistancy when bot is mentioned (sometimes replies but sometimes will ignore user)
-add error for non existant ! commands
