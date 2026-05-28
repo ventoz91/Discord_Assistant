@@ -27,6 +27,7 @@ for extension in [
     'cogs.games',
     'cogs.servers',
     'cogs.fun',
+    'cogs.rag',
 ]:
     bot.load_extension(extension)
 

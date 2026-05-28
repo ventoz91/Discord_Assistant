@@ -29,11 +29,13 @@ Personality: {personality}"""
 
 
 #Genereate gpt response with chat history and current behaviour
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None):
     # Load the max tokens from environment if not provided
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS"))
 
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
+    if rag_context:
+        system_content += "\n\nRELEVANT CONTEXT FROM MEMORY:\n" + "\n---\n".join(rag_context)
     messages = [{"role": "system", "content": system_content}] + message_history
 
     try:

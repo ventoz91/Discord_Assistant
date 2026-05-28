@@ -6,6 +6,7 @@ import aiohttp
 from colorama import Fore
 from chatbotfunc.utils import fetch_message_history, async_chat_completion, split_message, format_error_message, encode_discord_image
 from AIfunc.responses import analyze_image, generate_gpt_response
+from ragfunc.memory import async_store_message, async_retrieve
 
 RATE_LIMIT = 0.5
 
@@ -129,13 +130,23 @@ class ChatCog(commands.Cog):
                         print("Text file processed and added to chat history")
 
         if self._should_respond(message):
+            await async_store_message(message.channel.id, "user", message.content, message.id)
+
             async with message.channel.typing():
+                query = message.content or ""
+                rag_docs = await async_retrieve(message.channel.id, query, k=3, doc_type="document")
+                rag_msgs = await async_retrieve(message.channel.id, query, k=3, doc_type="message")
+                rag_context = rag_docs + rag_msgs or None
+
                 message_history = await fetch_message_history(
                     message.channel, self.bot, self.bot.channel_file_contents
                 )
                 combined_content = message.content + "\n" + (text_file_content or "")
                 message_history.append({"role": "user", "content": combined_content})
-                gpt_response = await generate_gpt_response(message_history, self.bot.chatgpt_behaviour)
+                gpt_response = await generate_gpt_response(
+                    message_history, self.bot.chatgpt_behaviour, rag_context=rag_context
+                )
+                await async_store_message(message.channel.id, "assistant", gpt_response)
                 for chunk in split_message(gpt_response):
                     await message.channel.send(chunk)
                     await asyncio.sleep(RATE_LIMIT)
