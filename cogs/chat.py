@@ -112,10 +112,10 @@ class ChatCog(commands.Cog):
                         response_text = (
                             analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
                         )
+                        sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
                         if response_text:
-                            await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}")
-                            await async_store_message(message.channel.id, "assistant", f"[image analysis: {attachment.filename}] {response_text}")
-                        await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
+                            await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}", message.id)
+                            await async_store_message(message.channel.id, "assistant", f"[image analysis: {attachment.filename}] {response_text}", sent_analysis.id)
                         image_processed = True
                         break
 
@@ -149,8 +149,11 @@ class ChatCog(commands.Cog):
                 gpt_response = await generate_gpt_response(
                     message_history, self.bot.chatgpt_behaviour, rag_context=rag_context
                 )
-                await async_store_message(message.channel.id, "assistant", gpt_response)
-                for chunk in split_message(gpt_response):
+                chunks = split_message(gpt_response)
+                sent = await message.channel.send(chunks[0])
+                await asyncio.sleep(RATE_LIMIT)
+                await async_store_message(message.channel.id, "assistant", gpt_response, sent.id)
+                for chunk in chunks[1:]:
                     await message.channel.send(chunk)
                     await asyncio.sleep(RATE_LIMIT)
 

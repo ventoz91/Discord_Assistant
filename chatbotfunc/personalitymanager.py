@@ -2,48 +2,58 @@ import random
 import os
 from chatbotfunc.utils import async_chat_completion
 
+
 class PersonalityManager:
-    def __init__(self, filepath="personalities.env"):
+    def __init__(self, filepath=".env"):
         self.filepath = filepath
         self.personalities = self.read_personalities_from_file()
 
-    # read personality file and return data
     def read_personalities_from_file(self):
-        if not os.path.exists("personalities.env"):
+        if not os.path.exists(self.filepath):
             return []
-        with open("personalities.env", "r") as file:
-            lines = file.readlines()
-            return [line.strip().split('=')[1] for line in lines if line.strip() and '=' in line]
+        with open(self.filepath, "r") as f:
+            lines = f.readlines()
+        return [
+            line.strip()[len("PERSONALITY="):]
+            for line in lines
+            if line.strip().startswith("PERSONALITY=")
+        ]
 
     def add_personality(self, new_personality):
         if new_personality not in self.personalities:
-            self.personalities.append(new_personality)
-            with open(self.filepath, "a") as file:
-                file.write(f"PERSONALITY{len(self.personalities)}={new_personality}\n")
-            self.read_personalities_from_file()
+            with open(self.filepath, "a") as f:
+                f.write(f"PERSONALITY={new_personality}\n")
+            self.personalities = self.read_personalities_from_file()
             return True
         return False
-    
+
     def remove_personality(self, index):
-        current_personalities = self.read_personalities_from_file()
-        try:
-            adjusted_index = index - 1
-            if 0 <= adjusted_index < len(current_personalities):
-                removed_personality = current_personalities.pop(adjusted_index)
+        if not os.path.exists(self.filepath):
+            return None
+        with open(self.filepath, "r") as f:
+            all_lines = f.readlines()
 
-                with open(self.filepath, "w") as file:
-                    for personality in current_personalities:
-                        file.write(f"PERSONALITY={personality}\n")
-                
-                self.personalities = self.read_personalities_from_file()
+        personalities = [
+            line.strip()[len("PERSONALITY="):]
+            for line in all_lines
+            if line.strip().startswith("PERSONALITY=")
+        ]
+        other_lines = [l for l in all_lines if not l.strip().startswith("PERSONALITY=")]
 
-                return removed_personality
-            else:
-                return None
-        except Exception as e:
-                print(f"Error removing personality: {e}")
-                return None
+        adjusted_index = index - 1
+        if not (0 <= adjusted_index < len(personalities)):
+            return None
 
+        removed = personalities.pop(adjusted_index)
+
+        with open(self.filepath, "w") as f:
+            for line in other_lines:
+                f.write(line)
+            for p in personalities:
+                f.write(f"PERSONALITY={p}\n")
+
+        self.personalities = self.read_personalities_from_file()
+        return removed
 
     def get_random_personality(self):
         return random.choice(self.personalities)
@@ -52,17 +62,14 @@ class PersonalityManager:
         if 0 <= index < len(self.personalities):
             return self.personalities[index]
         return None
-    
+
     async def get_personality_name(self, model, personality, temperature=0.7):
-        # Construct a prompt to ask the personality for its name
         prompt = f"As a {personality}, if you had a first and last name, what would it be? Please type first and last name only"
-        # Request a response from OpenAI
         response = await async_chat_completion(
             model=model,
             messages=[{"role": "system", "content": prompt}],
             temperature=temperature,
             top_p=0.9,
-            max_completion_tokens=10
+            max_completion_tokens=10,
         )
-        # Extracting and returning the GPT response (name)
         return response.choices[0].message.content.strip()

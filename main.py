@@ -16,8 +16,8 @@ bot = bridge.Bot(command_prefix='!', intents=intents)
 # Shared state accessible by all Cogs via self.bot
 bot.active_games = {}
 bot.last_generated_image_bytes = None
-bot.chatgpt_behaviour = os.getenv("PERSONALITY", "")
-bot.personality_manager = PersonalityManager()
+bot.personality_manager = PersonalityManager(filepath=".env")
+bot.chatgpt_behaviour = bot.personality_manager.personalities[0] if bot.personality_manager.personalities else ""
 
 for extension in [
     'cogs.chat',
