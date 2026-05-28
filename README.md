@@ -1,17 +1,18 @@
 # Discord Bot
 
-A personal Discord bot with GPT chat, image generation and transformation, voice TTS, game server management, and in-channel mini-games.
+A personal Discord bot with GPT chat, image generation and transformation, game server management, and in-channel mini-games.
 
 ## Features
 
-- **GPT chat** — responds in allowed channels using a configurable personality/system prompt
-- **Image generation** — gpt-image-1 image generation via `!generate`
-- **Image transformation** — native image editing via `!transform` (uses `gpt-image-1` images.edit API directly)
-- **Image analysis** — describe attached images in chat, or search and describe via `!image`
-- **Personality system** — multiple switchable system prompts managed at runtime
-- **Conversation simulation** — two bot personalities argue a topic via `!simulate`
-- **Mini-games** — Tic-Tac-Toe (`!game`) and Snake (`!snake`) playable in Discord
-- **Game server management** — start/stop/restart Minecraft (vanilla & modded), Valheim, and Enshrouded servers
+- **GPT chat** — responds in allowed channels using a configurable personality/system prompt; always responds to direct @mentions
+- **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`
+- **Image transformation** — native image editing via `!transform` / `/transform`
+- **Image analysis** — describe attached images in chat, or search and describe via `!image` / `/image`
+- **Personality system** — short character descriptors injected into a shared base system prompt; switchable at runtime
+- **Conversation simulation** — two bot personalities argue a topic via `!simulate` / `/simulate`
+- **Mini-games** — Tic-Tac-Toe (`!game` / `/game`) and Snake (`!snake` / `/snake`) playable in Discord
+- **Game server management** — Minecraft (vanilla & modded) panel with live status; Valheim and Enshrouded server commands
+- **Slash commands** — every command available as both `!prefix` and `/slash`
 - **Cog-based architecture** — each feature domain lives in its own `cogs/` module, hot-reloadable at runtime
 
 ## Requirements
@@ -37,7 +38,7 @@ Two env files are required at the project root.
 DISCORD_TOKEN=your_discord_bot_token
 OPENAI_API_KEY=your_openai_api_key
 MODEL_CHAT=gpt-5.4
-PERSONALITY=You are a helpful assistant.
+PERSONALITY=a short character descriptor e.g. "a sarcastic assistant named Soupy Dafoe obsessed with soup"
 CHANNEL_IDS=123456789,987654321
 HISTORYLENGTH=30
 MAX_TOKENS=500
@@ -65,14 +66,14 @@ VALHEIM_STEAM_DIR=I:\SteamLibrary
 ENSHROUDED_EXE=I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe
 ```
 
-**`personalities.env`** — one personality per line:
+**`personalities.env`** — one short personality descriptor per line:
 
 ```env
-PERSONALITY=You are a pirate.
-PERSONALITY=You are a sarcastic assistant.
+PERSONALITY=a sarcastic assistant named Soupy Dafoe obsessed with soup
+PERSONALITY=an enthusiastic valley girl with a secret PhD in Astrophysics named Tiffany
 ```
 
-This file is managed at runtime by `!new`, `!list`, and `/personality` slash commands.
+Each entry is a short character description injected into `BASE_SYSTEM_PROMPT` in `AIfunc/responses.py`. The base prompt handles all platform rules (Discord context, concise responses, code formatting, history handling) so personalities only need to describe the character. Managed at runtime via `!new`, `!list`, and `/personality` slash commands.
 
 ## Running
 
@@ -83,52 +84,54 @@ python main.py
 
 ## Commands
 
+All commands are available as both `!prefix` and `/slash`. The table below shows both forms.
+
 ### Chat & Personality
 
-| Command | Description |
-|---|---|
-| `!change [n]` | Switch to personality #n, or pick randomly if no number given |
-| `!new <text>` | Add a new personality |
-| `!list` | List all available personalities as a file |
-| `/personality change [n]` | Slash command equivalent of `!change` (also saves to `.env`) |
-| `/personality new <text>` | Slash command equivalent of `!new` |
-| `/personality list` | Slash command equivalent of `!list` |
-| `/personality remove <n>` | Remove personality at index n |
+| Prefix | Slash | Description |
+|---|---|---|
+| `!change [n]` | — | Switch to personality #n, or pick randomly |
+| `!new <text>` | — | Add a new personality descriptor |
+| `!list` | — | List all personalities as a file |
+| — | `/personality change [n]` | Switch personality (also saves to `.env`) |
+| — | `/personality new <text>` | Add a new personality |
+| — | `/personality list` | List personalities |
+| — | `/personality remove <n>` | Remove personality at index n |
 
 ### Images
 
-| Command | Description |
-|---|---|
-| `!generate <prompt>` | Generate an image with gpt-image-1 |
-| `!transform <instructions>` | Transform an attached image using gpt-image-1 native editing |
-| `!transform last <instructions>` | Transform the most recently generated image |
-| `!image <query>` | Search Google Images and describe the result |
+| Prefix | Slash | Description |
+|---|---|---|
+| `!generate <prompt>` | `/generate <prompt>` | Generate an image with gpt-image-1 |
+| `!transform <instructions>` | `/transform` | Transform an attached image |
+| `!transform last <instructions>` | `/transform use_last:True` | Transform the last generated image |
+| `!image <query>` | `/image <query>` | Search Google Images and describe the result |
 
 ### Games
 
-| Command | Description |
-|---|---|
-| `!game X\|O` | Play Tic-Tac-Toe (choose your symbol) |
-| `!snake` | Play Snake (w/a/s/d to move) |
+| Prefix | Slash | Description |
+|---|---|---|
+| `!game X\|O` | `/game` | Play Tic-Tac-Toe (choose your symbol) |
+| `!snake` | `/snake` | Play Snake (w/a/s/d to move) |
 
 ### Game Servers
 
-| Command | Description |
-|---|---|
-| `!minecraft` | Open the Minecraft server panel (start/stop/restart/players buttons) |
-| `!start_valheim` | Start the Valheim dedicated server |
-| `!stop_valheim` | Stop the Valheim dedicated server |
-| `!valheim_status` | Check if Valheim server process is running |
-| `!start_enshrouded` | Start the Enshrouded dedicated server |
-| `!stop_enshrouded` | Stop the Enshrouded dedicated server |
+| Prefix | Slash | Description |
+|---|---|---|
+| `!minecraft` | `/minecraft` | Open the Minecraft server panel |
+| `!start_valheim` | `/valheim start` | Start the Valheim dedicated server |
+| `!stop_valheim` | `/valheim stop` | Stop the Valheim dedicated server |
+| `!valheim_status` | `/valheim status` | Check Valheim server status |
+| `!start_enshrouded` | `/enshrouded start` | Start the Enshrouded dedicated server |
+| `!stop_enshrouded` | `/enshrouded stop` | Stop the Enshrouded dedicated server |
 
 ### Misc
 
-| Command | Description |
-|---|---|
-| `!simulate [p1] [p2] <topic>` | Simulate a conversation between two personalities on a topic |
-| `!prompt <topic>` | Generate a Google search URL for a topic via GPT |
-| `!sandwich` | Generate a random sandwich |
+| Prefix | Slash | Description |
+|---|---|---|
+| `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate a conversation between two personalities |
+| `!prompt <topic>` | `/prompt <topic>` | Generate a Google search URL for a topic via GPT |
+| `!sandwich` | `/sandwich` | Generate a random sandwich |
 
 ## Architecture
 
@@ -142,7 +145,8 @@ cogs/
   servers.py                — minecraft, valheim, enshrouded server commands
   fun.py                    — prompt, simulate, sandwich commands
 AIfunc/
-  responses.py              — OpenAI wrappers: generate_gpt_response, analyze_image,
+  responses.py              — BASE_SYSTEM_PROMPT constant; OpenAI wrappers:
+                              generate_gpt_response, analyze_image,
                               generate_image, transform_image
   simulate.py               — ConversationSimulator
 chatbotfunc/
@@ -150,7 +154,7 @@ chatbotfunc/
                               split_message, format_error_message, encode_discord_image
   personalitymanager.py     — PersonalityManager (reads/writes personalities.env)
 gamefunc/
-  minecraft.py              — MinecraftServer (env-based config, thread-safe async RCON)
+  minecraft.py              — MinecraftServer (thread-safe async RCON, no signal module)
   minecraft_panel.py        — MinecraftPanel Discord UI (buttons, live status)
   valheim.py                — ValheimServer, EnshroudedServer (Windows batch/exe)
   tictactoe.py              — play_tic_tac_toe
@@ -160,6 +164,19 @@ funfunc/
   prompt.py                 — GPTSearchPrompt
   sandwich.py               — random sandwich generator
 ```
+
+## Personality System
+
+`BASE_SYSTEM_PROMPT` in `AIfunc/responses.py` defines platform-level rules that apply to every personality:
+- Discord context (concise, conversational responses)
+- Code block formatting
+- History handling (focus on recent, use history as context)
+- Stay in character directive
+
+Each entry in `personalities.env` is a short character descriptor injected at the `{personality}` slot. Examples:
+- `a sarcastic, reluctant assistant named Soupy Dafoe preoccupied with soup`
+- `Professor Hubert J. Farnsworth from Futurama — exclamatory, brilliantly absent-minded`
+- `a DnD-style Sorceress who must roll a dice and announce the result before any action`
 
 ## Known Limitations
 
