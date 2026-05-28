@@ -8,8 +8,6 @@ colorama
 python-dotenv
 # Discord_Bot/funfunc/image_search.py
 google-api-python-client==2.187.0
-# Discord_Bot/gamefunc/minecraft.py
-mcrcon==0.7.0
 # Discord_Bot/AIfunc/simulate.py, chatbotfunc/utils.py, funfunc/prompt.py, main.py
 openai==2.15.0
 # Discord_Bot/main.py
