@@ -22,7 +22,8 @@ Two env files are required at the project root:
 - `MODEL_CHAT` — OpenAI model (e.g. `gpt-5.4`)
 - `PERSONALITY` — Active personality descriptor (short string injected into `BASE_SYSTEM_PROMPT`)
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
-- `HISTORYLENGTH` — Number of messages to fetch as context (default: 30)
+- `HISTORYLENGTH` — Number of recent messages to fetch directly from Discord (default: 30)
+- `RAG_MESSAGE_CONTEXT` — Number of semantically relevant past messages to retrieve from RAG memory (default: 50)
 - `MAX_TOKENS` — Max completion tokens for responses
 - `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
 - `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)

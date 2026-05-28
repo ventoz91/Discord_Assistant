@@ -41,6 +41,7 @@ MODEL_CHAT=gpt-5.4
 PERSONALITY=a short character descriptor e.g. "a sarcastic assistant named Soupy Dafoe obsessed with soup"
 CHANNEL_IDS=123456789,987654321
 HISTORYLENGTH=30
+RAG_MESSAGE_CONTEXT=50
 MAX_TOKENS=500
 
 # Minecraft
