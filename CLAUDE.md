@@ -25,6 +25,7 @@ A single **`.env`** file at the project root holds all configuration:
 - `MESSAGE_TTL_DAYS` — Days before a stored chat message is excluded from retrieval (default: 30). Documents never expire.
 - `DISTANCE_THRESHOLD` — Cosine distance cutoff for RAG retrieval (default: 0.8). Results above this are dropped.
 - `MAX_TOKENS` — Max completion tokens for responses
+- `REACTION_RESPONSES` — `true` / `false` — enable or disable emoji reaction responses (default: `true`)
 - `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
 - `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)
 - `MINECRAFT_VANILLA_RCON_PORT` — RCON port (default: 25575)
@@ -89,7 +90,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 
 ### Cog Layout
 
-- **`cogs/chat.py`** — `ChatCog`: `on_message` (GPT chat handler + RAG storage/retrieval), `on_reaction_add`, `on_ready`, `on_command_error`. Contains `_should_respond()` logic: always responds to direct @mentions, responds in `CHANNEL_IDS` channels unless message is directed at a specific human. Supported file attachments are stored in RAG via `async_store_document`; the bot's response is stored via `async_store_message`.
+- **`cogs/chat.py`** — `ChatCog`: `on_message` enqueues into a per-channel `asyncio.Queue`, `_process_queue` drains it sequentially via `_handle_message` (prevents concurrent processing races per channel). `on_reaction_add` (gated by `REACTION_RESPONSES` env var), `on_ready`, `on_command_error`. `_should_respond()`: always responds to @mentions, responds in `CHANNEL_IDS` channels unless directed at a specific human.
 - **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
 - **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe) and `snake` commands.
@@ -131,14 +132,17 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 1. Returns early if message is from the bot itself
 2. Returns early for `!`-prefixed messages (bot routes commands automatically via `bridge.Bot`)
 3. Skips channels with active games
-4. Processes image attachments via `analyze_image()` if present in an allowed channel; sends response, then stores both the user prompt and analysis result in RAG as tagged message entries using real Discord message IDs
-5. If a supported file is attached, downloads it, stores in ChromaDB via `async_store_document`, breaks
-6. Calls `_should_respond()`: True if bot is @mentioned (any channel) OR if channel is in `CHANNEL_IDS` and no human @mentions are present
-7. Stores user message in ChromaDB via `async_store_message` (filtered by `_should_store()` — junk skipped)
-8. Retrieves RAG context: top-5 document chunks + top-`RAG_MESSAGE_CONTEXT` message chunks, both filtered by `DISTANCE_THRESHOLD`
-9. Fetches direct Discord history via `fetch_message_history`, appends user message
-10. Calls `generate_gpt_response()` with RAG context injected into system prompt
-11. Sends first chunk, captures Discord message ID, stores bot response in ChromaDB with that ID (deduplication)
+4. Enqueues message into the channel's `asyncio.Queue`; starts a worker task for the channel if one isn't already running
+5. Worker calls `_handle_message` sequentially — one message at a time per channel, different channels process independently
+6. Resolves `channel_behaviour` = channel pin (if set) or global `bot.chatgpt_behaviour`
+7. Processes image attachments via `analyze_image()` if present in an allowed channel; sends response, then stores both the user prompt and analysis result in RAG as tagged message entries using real Discord message IDs
+8. If a supported file is attached, downloads it, stores in ChromaDB via `async_store_document`, breaks
+9. Calls `_should_respond()`: True if bot is @mentioned (any channel) OR if channel is in `CHANNEL_IDS` and no human @mentions are present
+10. Stores user message in ChromaDB via `async_store_message` (filtered by `_should_store()` — junk skipped)
+11. Retrieves RAG context: top-5 document chunks + top-`RAG_MESSAGE_CONTEXT` message chunks, both filtered by `DISTANCE_THRESHOLD`
+12. Fetches direct Discord history via `fetch_message_history`, appends user message
+13. Calls `generate_gpt_response()` with RAG context injected into system prompt
+14. Sends first chunk, captures Discord message ID, stores bot response in ChromaDB with that ID (deduplication)
 
 ### Bot Commands Reference
 

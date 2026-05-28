@@ -4,7 +4,7 @@ A personal Discord bot with GPT chat, image generation and transformation, game 
 
 ## Features
 
-- **GPT chat** — responds in allowed channels using a configurable personality/system prompt; always responds to direct @mentions
+- **GPT chat** — responds in allowed channels using a configurable personality/system prompt; always responds to direct @mentions; per-channel message queue prevents concurrent processing races
 - **RAG memory** — per-channel persistent memory backed by ChromaDB; stores chat history and uploaded documents, retrieves semantically relevant context on every response
 - **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`
 - **Image transformation** — native image editing via `!transform` / `/transform`
@@ -58,6 +58,11 @@ MODEL_CHAT=gpt-4o
 
 # Max tokens for normal chat responses
 MAX_TOKENS=500
+
+# Enable or disable reaction responses (true/false).
+# When true, the bot responds to emoji reactions on its own messages.
+# Set to false to prevent reaction spam without losing the feature.
+REACTION_RESPONSES=true
 
 
 # ─────────────────────────────────────────────
