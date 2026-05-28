@@ -1,4 +1,5 @@
-from discord.ext import commands
+import discord
+from discord.ext import commands, bridge
 import asyncio
 import gamefunc.tictactoe as tictactoe
 from gamefunc.snake import SnakeGame
@@ -8,39 +9,46 @@ class GamesCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command()
-    async def game(self, ctx, player_symbol: str = None):
+    @bridge.bridge_command(description="Play Tic-Tac-Toe")
+    async def game(self, ctx,
+        player_symbol: bridge.BridgeOption(str, "Your symbol (X or O)", choices=["X", "O"], required=False) = None):
         if self.bot.active_games.get(ctx.channel.id, False):
-            await ctx.send("A game is already in progress in this channel.")
+            await ctx.respond("A game is already in progress in this channel.")
             return
         if player_symbol is None or player_symbol.upper() not in ['X', 'O']:
-            await ctx.send("Please enter 'X' or 'O' to start the game. For example, `!game X`.")
+            await ctx.respond("Please enter 'X' or 'O' to start the game. For example, `!game X`.")
             return
         self.bot.active_games[ctx.channel.id] = True
+        await ctx.defer()
         try:
             await tictactoe.play_tic_tac_toe(ctx, self.bot, player_symbol)
         finally:
             self.bot.active_games[ctx.channel.id] = False
 
-    @commands.command()
+    @bridge.bridge_command(description="Play Snake (use w/a/s/d to move)")
     async def snake(self, ctx):
         if self.bot.active_games.get(ctx.channel.id, False):
-            await ctx.send("A game is already in progress in this channel.")
+            await ctx.respond("A game is already in progress in this channel.")
             return
         game = SnakeGame()
         self.bot.active_games[ctx.channel.id] = True
-        print(self.bot.active_games)
 
         def check(m):
             return m.author == ctx.author and m.channel == ctx.channel
 
         game_over = False
+        first = True
         while not game_over:
-            await ctx.send("```" + game.render() + "```")
+            board = "```" + game.render() + "```"
+            if first:
+                await ctx.respond(board)
+                first = False
+            else:
+                await ctx.channel.send(board)
             try:
                 msg = await self.bot.wait_for('message', check=check, timeout=60.0)
             except asyncio.TimeoutError:
-                await ctx.send("Game Timed Out")
+                await ctx.channel.send("Game Timed Out")
                 break
             content = msg.content.lower()
             if content == 'w':
@@ -53,9 +61,8 @@ class GamesCog(commands.Cog):
                 game.direction = (1, 0)
             game_over = not game.move()
 
-        await ctx.send("Game Over!")
+        await ctx.channel.send("Game Over!")
         self.bot.active_games[ctx.channel.id] = False
-        print(self.bot.active_games)
 
 
 def setup(bot):

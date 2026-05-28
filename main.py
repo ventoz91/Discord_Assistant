@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 import discord
-from discord.ext import commands
+from discord.ext import bridge
 from colorama import init
 from chatbotfunc.personalitymanager import PersonalityManager
 
@@ -11,7 +11,7 @@ init(autoreset=True)
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
+bot = bridge.Bot(command_prefix='!', intents=intents)
 
 # Shared state accessible by all Cogs via self.bot
 bot.active_games = {}

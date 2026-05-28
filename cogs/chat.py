@@ -15,18 +15,22 @@ class ChatCog(commands.Cog):
         self.bot = bot
 
     def _should_respond(self, message) -> bool:
-        channel_ids_str = os.getenv("CHANNEL_IDS")
-        if not channel_ids_str:
-            return False
-        allowed = [int(cid) for cid in channel_ids_str.split(',')]
-        if message.author == self.bot.user or message.channel.id not in allowed:
+        if message.author == self.bot.user:
             return False
         if "Generated Image" in message.content:
             return False
-        mentioned_users = [u for u in message.mentions if not u.bot]
-        if mentioned_users or not (self.bot.user in message.mentions or message.channel.id in allowed):
+        # Always respond when directly @mentioned, even outside allowed channels
+        if self.bot.user in message.mentions:
+            return True
+        channel_ids_str = os.getenv("CHANNEL_IDS", "")
+        if not channel_ids_str:
             return False
-        return True
+        allowed = [int(cid) for cid in channel_ids_str.split(',') if cid.strip()]
+        if message.channel.id not in allowed:
+            return False
+        # In an allowed channel, stay quiet if the message is directed at a specific human
+        human_mentions = [u for u in message.mentions if not u.bot]
+        return len(human_mentions) == 0
 
     @staticmethod
     async def _download_text_file(url: str):
@@ -127,7 +131,7 @@ class ChatCog(commands.Cog):
                         self.bot.channel_file_contents[message.channel.id] = text_file_content
                         print("Text file processed and added to chat history")
 
-        if self._should_respond(message) or self.bot.user in message.mentions:
+        if self._should_respond(message):
             async with message.channel.typing():
                 message_history = await fetch_message_history(
                     message.channel, self.bot, self.bot.channel_file_contents
@@ -139,6 +143,10 @@ class ChatCog(commands.Cog):
                     await message.channel.send(chunk)
                     await asyncio.sleep(RATE_LIMIT)
 
+    @commands.Cog.listener()
+    async def on_command_error(self, ctx, error):
+        if isinstance(error, commands.CommandNotFound):
+            await ctx.send(f"`!{ctx.invoked_with}` is not a recognised command.")
 
 
 def setup(bot):
