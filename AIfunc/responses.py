@@ -17,15 +17,24 @@ if openai_api_key is None:
 client = OpenAI(api_key=openai_api_key)
 openai.api_key = openai_api_key
 
+BASE_SYSTEM_PROMPT = """You are an AI assistant in a Discord server. Follow these rules in every response.
+
+PLATFORM: This is Discord chat. Keep responses conversational and concise — no walls of text unless the user explicitly asks for detail. Format any code in triple-backtick code blocks. If a response would exceed 2000 characters, break it at a logical point and offer to continue.
+
+CONTEXT: Focus on the most recent message. Use conversation history only as supporting context — do not rehash prior topics unless directly relevant.
+
+CHARACTER: Fully embody the personality below. Stay in character at all times. Do not acknowledge being an AI or break character unless directly asked.
+
+Personality: {personality}"""
+
 
 #Genereate gpt response with chat history and current behaviour
 async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9):
     # Load the max tokens from environment if not provided
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS"))
 
-    # Prepare the messages, including the system behavior message
-    messages = [{"role": "system", "content": chatgpt_behaviour}] + message_history
-    messages.append({"role": "assistant", "content": "What is your reply?"})
+    system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
+    messages = [{"role": "system", "content": system_content}] + message_history
 
     try:
         response = await async_chat_completion(
@@ -48,8 +57,8 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
 
 #Anylyzes images with history and personality context
 async def analyze_image(base64_image, instructions, message_history, chatgpt_behaviour):
-    # Prepend the chat behavior and message history to the messages list
-    messages = [{"role": "system", "content": chatgpt_behaviour}] + message_history
+    system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
+    messages = [{"role": "system", "content": system_content}] + message_history
     messages.append({"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]})
 
     payload = {
