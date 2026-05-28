@@ -2,9 +2,11 @@ import discord
 from discord.ext import commands, bridge
 import os
 import asyncio
-import subprocess
+from io import BytesIO
 from funfunc.prompt import GPTSearchPrompt
+from funfunc.sandwich import make_random_sandwich
 from AIfunc.simulate import ConversationSimulator
+from AIfunc.responses import generate_image
 from chatbotfunc.utils import split_message
 
 
@@ -75,17 +77,19 @@ class FunCog(commands.Cog):
 
     # ── Sandwich ──────────────────────────────────────────────────────────────
 
-    @bridge.bridge_command(description="Generate a random sandwich")
+    @bridge.bridge_command(description="Generate a random sandwich with an image")
     async def sandwich(self, ctx):
         await ctx.defer()
-        try:
-            result = subprocess.run(
-                ['python', 'funfunc/sandwich.py'], capture_output=True, text=True, check=True
+        description = make_random_sandwich()
+        image_prompt = f"Photorealistic food photography of {description}, gourmet presentation on a wooden board, soft professional lighting, shallow depth of field"
+        image_bytes = await generate_image(image_prompt)
+        if isinstance(image_bytes, bytes):
+            await ctx.respond(
+                description,
+                file=discord.File(fp=BytesIO(image_bytes), filename="sandwich.png"),
             )
-            await ctx.respond(result.stdout.strip())
-        except subprocess.CalledProcessError as e:
-            await ctx.respond(f"Error generating sandwich: {e}")
-            print(f"Error: {e}")
+        else:
+            await ctx.respond(description)
 
 
 def setup(bot):
