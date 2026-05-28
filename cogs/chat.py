@@ -119,8 +119,6 @@ class ChatCog(commands.Cog):
         if image_processed:
             return
 
-        # Store any supported text/code/pdf attachments in RAG and surface
-        # their content directly in the immediate response.
         text_file_content = None
         if message.attachments:
             for attachment in message.attachments:
@@ -144,8 +142,7 @@ class ChatCog(commands.Cog):
                 rag_context = rag_docs + rag_msgs or None
 
                 message_history = await fetch_message_history(message.channel, self.bot)
-                combined_content = message.content + ("\n" + text_file_content if text_file_content else "")
-                message_history.append({"role": "user", "content": combined_content})
+                message_history.append({"role": "user", "content": message.content})
                 gpt_response = await generate_gpt_response(
                     message_history, self.bot.chatgpt_behaviour, rag_context=rag_context
                 )
