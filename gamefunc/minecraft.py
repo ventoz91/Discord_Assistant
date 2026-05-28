@@ -1,85 +1,80 @@
 import subprocess
-from mcrcon import MCRcon
-import os
 import asyncio
+import os
 import shlex
+from mcrcon import MCRcon
+
 
 class MinecraftServer:
-    def __init__(self, ctx):
-        self.ctx = ctx
-        # Define RCON settings for each server type
+    def __init__(self):
         self.rcon_settings = {
-            'vanilla': {'host': "localhost", 'port': 25575, 'password': "WR>**gd123"},
-            'modded': {'host': "localhost", 'port': 25575, 'password': "password123"}
+            'vanilla': {
+                'host':     os.getenv('MINECRAFT_VANILLA_RCON_HOST', 'localhost'),
+                'port':     int(os.getenv('MINECRAFT_VANILLA_RCON_PORT', 25575)),
+                'password': os.getenv('MINECRAFT_VANILLA_RCON_PASSWORD', ''),
+            },
+            'modded': {
+                'host':     os.getenv('MINECRAFT_MODDED_RCON_HOST', 'localhost'),
+                'port':     int(os.getenv('MINECRAFT_MODDED_RCON_PORT', 25575)),
+                'password': os.getenv('MINECRAFT_MODDED_RCON_PASSWORD', ''),
+            },
+        }
+        self.server_dirs = {
+            'vanilla': os.getenv('MINECRAFT_VANILLA_DIR', ''),
+            'modded':  os.getenv('MINECRAFT_MODDED_DIR', ''),
         }
 
-    async def start_server(self, server_type):
+    def start(self, server_type: str) -> bool:
+        server_dir = self.server_dirs.get(server_type, '')
+        if not server_dir:
+            return False
+        cmd = f'kitty --hold -d {server_dir} -e bash -c "./newrun.sh"'
+        subprocess.Popen(shlex.split(cmd))
+        return True
+
+    async def _rcon(self, server_type: str, command: str) -> str:
+        info = self.rcon_settings[server_type]
+        def _run():
+            with MCRcon(info['host'], info['password'], info['port']) as mcr:
+                return mcr.command(command)
+        return await asyncio.to_thread(_run)
+
+    async def stop(self, server_type: str) -> str:
         try:
-            if server_type == 'vanilla':
-                minecraft_dir = '/home/trevor/Documents/Vanilla_Server'  # Update with actual path
-                full_command = f'kitty --hold -d {minecraft_dir} -e bash -c "./newrun.sh"'
-            elif server_type == 'modded':
-                minecraft_dir = '/home/trevor/Documents/AlexServer'  # Update with actual path
-                full_command = f'kitty --hold -d {minecraft_dir} -e bash -c "./newrun.sh"'
-            else:
-                await self.ctx.send("Invalid server type. Please use 'vanilla' or 'modded'.")
-                return
-
-            # Execute the command properly
-            subprocess.Popen(shlex.split(full_command))
-
-            await self.ctx.send(f"{server_type.capitalize()} Minecraft server started in a new Kitty terminal window.")
-
+            return await self._rcon(server_type, 'stop')
         except Exception as e:
-            await self.ctx.send(f"Error starting {server_type} server: {str(e)}")
+            return str(e)
 
-
-    async def stop_server(self, server_type):
+    async def players(self, server_type: str) -> str:
         try:
-            if server_type not in self.rcon_settings:
-                await self.ctx.send("Invalid server type. Please use 'vanilla' or 'modded'.")
-                return
-
-            # Get the RCON settings for the specified server type
-            rcon_info = self.rcon_settings[server_type]
-
-            # Send RCON command to stop the server
-            with MCRcon(rcon_info['host'], rcon_info['password'], rcon_info['port']) as mcr:
-                resp = mcr.command("stop")
-                await self.ctx.send(f"Response from {server_type} server: {resp}")
-
+            return await self._rcon(server_type, 'list')
         except Exception as e:
-            await self.ctx.send(f"An error occurred while stopping the server: {e}")
+            return str(e)
 
-    async def restart_server(self, server_type):
+    def is_running(self, server_type: str) -> bool:
+        info = self.rcon_settings[server_type]
         try:
-            if server_type not in self.rcon_settings:
-                await self.ctx.send("Invalid server type. Please use 'vanilla' or 'modded'.")
-                return
+            with MCRcon(info['host'], info['password'], info['port']) as mcr:
+                mcr.command('list')
+                return True
+        except Exception:
+            return False
 
-            # Step 1: Stop the server
-            await self.stop_server(server_type)
+    async def wait_until_ready(self, server_type: str, timeout: int = 120) -> bool:
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                await self._rcon(server_type, 'list')
+                return True
+            except Exception:
+                await asyncio.sleep(5)
+        return False
 
-            # Wait for a few seconds to ensure the server stops
-            await asyncio.sleep(10)  # You can adjust the delay as needed
-
-            # Step 2: Start the server
-            await self.start_server(server_type)
-
-        except Exception as e:
-            await self.ctx.send(f"An error occurred while restarting the server: {e}")
-
-    async def list_players(self, server_type):
-        try:
-            if server_type not in self.rcon_settings:
-                await self.ctx.send("Invalid server type. Please use 'vanilla' or 'modded'.")
-                return
-
-            rcon_info = self.rcon_settings[server_type]
-
-            with MCRcon(rcon_info['host'], rcon_info['password'], rcon_info['port']) as mcr:
-                resp = mcr.command("list")
-                await self.ctx.send(f"Current players on {server_type} server: {resp}")
-
-        except Exception as e:
-            await self.ctx.send(f"An error occurred while retrieving player list: {e}")
+    async def wait_until_stopped(self, server_type: str, timeout: int = 60) -> bool:
+        deadline = asyncio.get_event_loop().time() + timeout
+        while asyncio.get_event_loop().time() < deadline:
+            running = await asyncio.to_thread(self.is_running, server_type)
+            if not running:
+                return True
+            await asyncio.sleep(3)
+        return False

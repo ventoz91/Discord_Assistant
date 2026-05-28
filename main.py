@@ -5,7 +5,7 @@ from funfunc.prompt import GPTSearchPrompt
 from chatbotfunc.utils import fetch_message_history, async_chat_completion
 from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.simulate import ConversationSimulator
-from gamefunc.minecraft import MinecraftServer
+from gamefunc.minecraft_panel import MinecraftPanel
 from gamefunc.valheim import ValheimServer, EnshroudedServer
 from gamefunc.snake import SnakeGame
 import os
@@ -618,26 +618,12 @@ async def snake(ctx):
 ###################################
 #####Minecraft Server Commands#####
 ###################################
-        
-@bot.command()
-async def start(ctx, server_type: str):
-    server = MinecraftServer(ctx)
-    await server.start_server(server_type.lower())
 
 @bot.command()
-async def stop(ctx, server_type: str):
-    server = MinecraftServer(ctx)
-    await server.stop_server(server_type.lower())
-
-@bot.command()
-async def restart(ctx, server_type: str):
-    server = MinecraftServer(ctx)
-    await server.restart_server(server_type.lower())
-
-@bot.command()
-async def players(ctx, server_type: str):
-    server = MinecraftServer(ctx)
-    await server.list_players(server_type.lower())
+async def minecraft(ctx):
+    panel = MinecraftPanel()
+    msg = await ctx.send(embed=panel.build_embed(), view=panel)
+    await panel.refresh_states(msg)
 
 ##########################
 #####Valheim Commands#####

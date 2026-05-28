@@ -40,6 +40,27 @@ PERSONALITY=You are a helpful assistant.
 CHANNEL_IDS=123456789,987654321
 HISTORYLENGTH=30
 MAX_TOKENS=500
+
+# Minecraft
+MINECRAFT_VANILLA_DIR=/home/trevor/Documents/Vanilla_Server
+MINECRAFT_VANILLA_RCON_HOST=localhost
+MINECRAFT_VANILLA_RCON_PORT=25575
+MINECRAFT_VANILLA_RCON_PASSWORD=your_rcon_password
+MINECRAFT_MODDED_DIR=/home/trevor/Documents/AlexServer
+MINECRAFT_MODDED_RCON_HOST=localhost
+MINECRAFT_MODDED_RCON_PORT=25575
+MINECRAFT_MODDED_RCON_PASSWORD=your_rcon_password
+
+# Google Image Search
+GOOGLE_API_KEY=your_google_api_key
+GOOGLE_CSE_ID=your_cse_id
+
+# Valheim / Enshrouded (Windows only)
+VALHEIM_SERVER_NAME=MyValheimServer
+VALHEIM_WORLD_NAME=MyWorld
+VALHEIM_PASSWORD=your_password
+VALHEIM_STEAM_DIR=I:\SteamLibrary
+ENSHROUDED_EXE=I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe
 ```
 
 **`personalities.env`** — one personality per line:
@@ -92,10 +113,7 @@ python main.py
 
 | Command | Description |
 |---|---|
-| `!start <vanilla\|modded>` | Start a Minecraft server in a new kitty window |
-| `!stop <vanilla\|modded>` | Stop a Minecraft server via RCON |
-| `!restart <vanilla\|modded>` | Restart a Minecraft server |
-| `!players <vanilla\|modded>` | List online players via RCON |
+| `!minecraft` | Open the Minecraft server panel (start/stop/restart/players buttons) |
 | `!start_valheim` | Start the Valheim dedicated server |
 | `!stop_valheim` | Stop the Valheim dedicated server |
 | `!valheim_status` | Check if Valheim server process is running |
@@ -122,7 +140,8 @@ chatbotfunc/
   utils.py                  — fetch_message_history, async_chat_completion
   personalitymanager.py     — PersonalityManager (reads/writes personalities.env)
 gamefunc/
-  minecraft.py              — MinecraftServer (Linux, RCON)
+  minecraft.py              — MinecraftServer (env-based config, async RCON)
+  minecraft_panel.py        — MinecraftPanel Discord UI (buttons, live status)
   valheim.py                — ValheimServer, EnshroudedServer (Windows batch/exe)
   tictactoe.py              — play_tic_tac_toe
   snake.py                  — SnakeGame

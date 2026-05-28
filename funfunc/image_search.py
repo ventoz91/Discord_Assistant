@@ -1,14 +1,14 @@
 import sys
 import json
 import random
+import os
 from googleapiclient.discovery import build
 
 class Search:
 
     def __init__(self):
-        # Hardcoded API Key and CSE ID
-        self.api_key = "AIzaSyDzHh4frHyxdYmwqkZL2a5WrgpqKraVddQ"
-        self.cse_id = "4753b0aec5ce84a68"
+        self.api_key = os.getenv('GOOGLE_API_KEY', '')
+        self.cse_id  = os.getenv('GOOGLE_CSE_ID', '')
 
     def search_google_images(self, query):
         try:

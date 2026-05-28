@@ -4,11 +4,10 @@ import psutil
 
 class ValheimServer:
     def __init__(self):
-        # Server configuration
-        self.server_name = "MyValheimServer"
-        self.world_name = "catss"
-        self.server_password = "kbt123"
-        self.steam_directory = 'I:\\SteamLibrary'
+        self.server_name      = os.getenv('VALHEIM_SERVER_NAME', 'MyValheimServer')
+        self.world_name       = os.getenv('VALHEIM_WORLD_NAME', 'MyWorld')
+        self.server_password  = os.getenv('VALHEIM_PASSWORD', '')
+        self.steam_directory  = os.getenv('VALHEIM_STEAM_DIR', '')
 
     def create_valheim_server_batch_file(self):
         batch_file_path = os.path.join(self.steam_directory, 'URDediServ.bat')
@@ -76,11 +75,11 @@ class ValheimServer:
 class EnshroudedServer:
 
     def start_server(self):
-        exe_path = r"I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe"
-
+        exe_path = os.getenv('ENSHROUDED_EXE', '')
+        if not exe_path:
+            return "Enshrouded server path not configured (set ENSHROUDED_EXE in .env)."
         subprocess.Popen([exe_path], creationflags=subprocess.CREATE_NEW_CONSOLE)
-
-        return f"Enshrouded server starting..."
+        return "Enshrouded server starting..."
     
     def stop_server(self, task_name):
         # Check if the task is running

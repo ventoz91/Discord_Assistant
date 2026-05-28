@@ -24,6 +24,21 @@ Two env files are required at the project root:
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
 - `HISTORYLENGTH` — Number of messages to fetch as context (default: 30)
 - `MAX_TOKENS` — Max completion tokens for responses
+- `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
+- `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)
+- `MINECRAFT_VANILLA_RCON_PORT` — RCON port (default: 25575)
+- `MINECRAFT_VANILLA_RCON_PASSWORD` — RCON password
+- `MINECRAFT_MODDED_DIR` — Path to modded server directory
+- `MINECRAFT_MODDED_RCON_HOST` — RCON host (default: localhost)
+- `MINECRAFT_MODDED_RCON_PORT` — RCON port (default: 25575)
+- `MINECRAFT_MODDED_RCON_PASSWORD` — RCON password
+- `GOOGLE_API_KEY` — Google Custom Search API key
+- `GOOGLE_CSE_ID` — Google Custom Search Engine ID
+- `VALHEIM_SERVER_NAME` — Valheim server display name
+- `VALHEIM_WORLD_NAME` — Valheim world name
+- `VALHEIM_PASSWORD` — Valheim server password
+- `VALHEIM_STEAM_DIR` — Path to Steam directory (Windows)
+- `ENSHROUDED_EXE` — Full path to enshrouded_server.exe (Windows)
 
 **`personalities.env`** — personality definitions, one per line in the format `PERSONALITY=<prompt text>`. Managed at runtime via `PersonalityManager`.
 
@@ -37,7 +52,7 @@ Two env files are required at the project root:
 - **`AIfunc/simulate.py`** — `ConversationSimulator`: simulates a back-and-forth conversation between two bot personalities on a given topic.
 - **`chatbotfunc/utils.py`** — `fetch_message_history()` (fetches Discord channel history as OpenAI message format) and `async_chat_completion()` (wraps `openai.chat.completions.create` in a thread).
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personalities from `personalities.env`. Personalities are system prompts stored one per line.
-- **`gamefunc/`** — Minecraft server management (`minecraft.py`), Valheim/Enshrouded server management (`valheim.py`), Tic-Tac-Toe (`tictactoe.py`), Snake (`snake.py`).
+- **`gamefunc/`** — Minecraft server management (`minecraft.py`), Minecraft button panel (`minecraft_panel.py`), Valheim/Enshrouded server management (`valheim.py`), Tic-Tac-Toe (`tictactoe.py`), Snake (`snake.py`).
 - **`funfunc/`** — Image search (`image_search.py`), Google search prompt generation (`prompt.py`), random sandwich generator (`sandwich.py`).
 
 ### Message Flow
@@ -76,7 +91,7 @@ The bot uses both `!` prefix commands (`@bot.command()`) and slash commands (`@p
 | `!simulate [p1] [p2] <topic>` | Simulate conversation between two personalities |
 | `!game X\|O` | Play Tic-Tac-Toe |
 | `!snake` | Play Snake |
-| `!start/stop/restart/players <type>` | Manage Minecraft servers |
+| `!minecraft` | Open the Minecraft server management panel |
 | `!start_valheim` / `!stop_valheim` | Manage Valheim server |
 | `!prompt <topic>` | Generate a Google search URL for a topic |
 | `!sandwich` | Generate a random sandwich |
