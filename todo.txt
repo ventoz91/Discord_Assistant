@@ -24,6 +24,9 @@ Real-time web search via tool calling — google_search tool (Tavily-backed) res
 Consistent error handling — centralised logger (chatbotfunc/logger.py), RotatingFileHandler to
   data/bot.log, LOG_LEVEL env var; all cogs use logger.error/exception; BadRequestError rejections
   logged as warnings; openai import bug in images.py fixed
+/adventure level 1 — QUD-style ASCII dungeon; 55×23 grid map, 8-directional movement, 6 connected
+  areas, items at (x,y) positions rendered as roguelike symbols, 33×15 viewport follows player,
+  win condition on collecting Golden Crown
 
 --- TODO ---
 

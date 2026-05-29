@@ -98,7 +98,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 - **`cogs/chat.py`** — `ChatCog`: `on_message` enqueues into a per-channel `asyncio.Queue`, `_process_queue` drains it sequentially via `_handle_message` (prevents concurrent processing races per channel). `on_reaction_add` (gated by `REACTION_RESPONSES` env var), `on_ready`, `on_command_error`. `_should_respond()`: always responds to @mentions, responds in `CHANNEL_IDS` channels unless directed at a specific human. Defines `_GENERATE_TOOL` and `_TRANSFORM_TOOL` OpenAI tool schemas; the transform tool is only included in the tools list when the channel has a prior image in `bot.channel_image_state`.
 - **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
 - **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
-- **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe) and `snake` commands.
+- **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe), `snake`, and `adventure` commands.
 - **`cogs/servers.py`** — `ServersCog`: `minecraft` bridge command; Valheim prefix commands + `/valheim start|stop|status` slash group; Enshrouded prefix commands + `/enshrouded start|stop` slash group.
 - **`cogs/fun.py`** — `FunCog`: `prompt` and `sandwich` bridge commands; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
 - **`cogs/rag.py`** — `RAGCog`: `learn` (prefix + slash, supports file attachment), `memory`, `cleardocs`, and `summarize` (bridge commands), `clearall` (prefix only, requires Manage Messages).
@@ -118,6 +118,8 @@ Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and 
 - **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()`.
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` / `set_active()` persist the selected personality via `ACTIVE_PERSONALITY=`. `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` manage per-channel pins stored in `data/channel_personalities.json`.
 - **`ragfunc/memory.py`** — `ChannelMemory` class (ChromaDB wrapper); `store_message()` (with quality filter via `_should_store()`), `store_document()`, `retrieve()` (with `DISTANCE_THRESHOLD` cosine filter), `clear_documents()`, `clear_all()`; async helpers: `async_store_message`, `async_store_document`, `async_retrieve`, `async_count`, `async_clear_documents`, `async_clear_all`.
+- **`gamefunc/adventure.py`** — `AdventureGame` class and map data. 55×23 grid dungeon built programmatically from room + corridor rectangles. 8-directional movement, items at (x,y) positions rendered as roguelike symbols, viewport rendering (33×15) centered on player. Win condition: pick up the Golden Crown.
+- **`gamefunc/adventure_panel.py`** — `AdventureView(discord.ui.View)`: 3×3 D-pad (8 directions), Pick Up / Inventory / Look / Quit buttons. Direction buttons disable when adjacent tile is a wall. Embed refreshes in place on every action. Timeout clears `bot.active_games`.
 - **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (not the `mcrcon` library, which uses `signal.alarm()` and crashes outside the main thread).
 - **`gamefunc/minecraft_panel.py`** — `MinecraftPanel` Discord UI with live status embed and button enable/disable rules.
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only).
@@ -168,6 +170,7 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 | `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate conversation between two personalities |
 | `!game X\|O` | `/game` | Play Tic-Tac-Toe |
 | `!snake` | `/snake` | Play Snake |
+| `!adventure` | `/adventure` | ASCII dungeon game (QUD-style grid map, 8-directional movement) |
 | `!minecraft` | `/minecraft` | Open the Minecraft server management panel |
 | `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |

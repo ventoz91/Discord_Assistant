@@ -12,7 +12,7 @@ A personal Discord bot with GPT chat, image generation and transformation, game 
 - **Web search** — bot looks up current information in conversation via tool calling (Tavily); incorporates live results into its in-character response
 - **Personality system** — short character descriptors injected into a shared base system prompt; switchable at runtime, pinnable per-channel, persists across restarts
 - **Conversation simulation** — two bot personalities argue a topic via `!simulate` / `/simulate`
-- **Mini-games** — Tic-Tac-Toe (`!game` / `/game`) and Snake (`!snake` / `/snake`) playable in Discord
+- **Mini-games** — Tic-Tac-Toe (`!game` / `/game`), Snake (`!snake` / `/snake`), and a QUD-style ASCII dungeon (`!adventure` / `/adventure`) with an 8-directional grid map, items, and a win condition
 - **Game server management** — Minecraft (vanilla & modded) panel with live status; Valheim and Enshrouded server commands
 - **Slash commands** — every command available as both `!prefix` and `/slash`
 - **Cog-based architecture** — each feature domain lives in its own `cogs/` module, hot-reloadable at runtime
@@ -214,6 +214,7 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 |---|---|---|
 | `!game X\|O` | `/game` | Play Tic-Tac-Toe (choose your symbol) |
 | `!snake` | `/snake` | Play Snake (w/a/s/d to move) |
+| `!adventure` | `/adventure` | ASCII dungeon (QUD-style grid, 8-directional movement, items, win condition) |
 
 ### Game Servers
 
@@ -242,7 +243,7 @@ cogs/
   chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler, RAG integration, AI image tools)
   images.py                 — generate, transform, image, variation commands
   personality.py            — prefix + slash personality commands
-  games.py                  — game (Tic-Tac-Toe), snake commands
+  games.py                  — game (Tic-Tac-Toe), snake, adventure commands
   servers.py                — minecraft, valheim, enshrouded server commands
   fun.py                    — prompt, simulate, sandwich commands
   rag.py                    — learn, memory, cleardocs, clearall commands
@@ -259,6 +260,10 @@ chatbotfunc/
                               split_message, format_error_message, encode_discord_image
   personalitymanager.py     — PersonalityManager (reads/writes .env; get/set_active for persistence; get/set/clear_channel_personality for per-channel pins)
 gamefunc/
+  adventure.py              — AdventureGame: 55×23 grid dungeon, 8-dir movement,
+                              item positions, viewport renderer (33×15)
+  adventure_panel.py        — AdventureView: D-pad buttons, embed-in-place refresh,
+                              timeout cleanup
   minecraft.py              — MinecraftServer (thread-safe async RCON, no signal module)
   minecraft_panel.py        — MinecraftPanel Discord UI (buttons, live status)
   valheim.py                — ValheimServer, EnshroudedServer (Windows batch/exe)
