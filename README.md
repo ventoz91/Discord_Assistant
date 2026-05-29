@@ -59,9 +59,21 @@ MODEL_CHAT=gpt-4o
 # Max tokens for normal chat responses
 MAX_TOKENS=500
 
+# Response creativity (range 0.0–2.0; higher = more creative/unpredictable).
+# 1.0 is balanced; 1.5 leans expressive and characterful; lower values are more focused.
+TEMPERATURE=1.5
+
+# Image generation and transform dimensions: 1024x1024 (square) / 1536x1024 (landscape) / 1024x1536 (portrait)
+IMAGE_SIZE=1024x1024
+
+# Image generation and transform quality: low / medium / high (higher = better quality, higher cost per image)
+IMAGE_QUALITY=medium
+
+# Max tokens for image analysis responses. Raise if descriptions are getting cut off.
+ANALYZE_MAX_TOKENS=500
+
 # Enable or disable reaction responses (true/false).
 # When true, the bot responds to emoji reactions on its own messages.
-# Set to false to prevent reaction spam without losing the feature.
 REACTION_RESPONSES=true
 
 # Python logging level for data/bot.log (DEBUG / INFO / WARNING / ERROR).
@@ -80,6 +92,10 @@ HISTORYLENGTH=30
 # Number of semantically relevant past messages retrieved from ChromaDB per response.
 # These are filtered by cosine distance — only truly relevant ones are injected.
 RAG_MESSAGE_CONTEXT=50
+
+# Number of document chunks retrieved from ChromaDB per response.
+# Separate from RAG_MESSAGE_CONTEXT — controls how much !learn content is surfaced per reply.
+RAG_DOC_CONTEXT=5
 
 # How many days a chat message stays retrievable from RAG memory.
 # After this period it is excluded from retrieval (but not deleted from the DB).

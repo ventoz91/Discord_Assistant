@@ -22,9 +22,14 @@ A single **`.env`** file at the project root holds all configuration:
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
 - `HISTORYLENGTH` — Number of recent messages to fetch directly from Discord (default: 30)
 - `RAG_MESSAGE_CONTEXT` — Number of semantically relevant past messages to retrieve from ChromaDB per response (default: 50)
+- `RAG_DOC_CONTEXT` — Number of document chunks retrieved from ChromaDB per response (default: 5). Separate from `RAG_MESSAGE_CONTEXT` — controls how much `!learn` content is surfaced.
 - `MESSAGE_TTL_DAYS` — Days before a stored chat message is excluded from retrieval (default: 30). Documents never expire.
 - `DISTANCE_THRESHOLD` — Cosine distance cutoff for RAG retrieval (default: 0.8). Results above this are dropped.
-- `MAX_TOKENS` — Max completion tokens for responses
+- `MAX_TOKENS` — Max completion tokens for responses (default: 500)
+- `TEMPERATURE` — Response creativity, 0.0–2.0 (default: 1.5). Higher = more creative/unpredictable; lower = more focused. Read at call time in `generate_gpt_response`.
+- `IMAGE_SIZE` — Image generation/transform dimensions: `1024x1024` / `1536x1024` / `1024x1536` (default: `1024x1024`).
+- `IMAGE_QUALITY` — Image generation/transform quality: `low` / `medium` / `high` (default: `medium`). Higher costs more per image.
+- `ANALYZE_MAX_TOKENS` — Token cap for image analysis responses (default: 500). Raise if descriptions are getting cut off.
 - `REACTION_RESPONSES` — `true` / `false` — enable or disable emoji reaction responses (default: `true`)
 - `LOG_LEVEL` — Python logging level written to `data/bot.log` (default: `WARNING`). Set to `INFO` or `DEBUG` for more verbose file logging. Console always shows INFO+.
 - `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory

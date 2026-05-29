@@ -131,7 +131,7 @@ class ChatCog(commands.Cog):
         emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
         prompt = f"{user.display_name} reacted to your last message with {emoji_name}. Respond in character."
 
-        rag_docs = await async_retrieve(channel.id, emoji_name, k=5, doc_type="document")
+        rag_docs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
         rag_msgs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
         rag_context = rag_docs + rag_msgs or None
 
@@ -221,7 +221,7 @@ class ChatCog(commands.Cog):
 
             async with message.channel.typing():
                 query = message.content or ""
-                rag_docs = await async_retrieve(message.channel.id, query, k=5, doc_type="document")
+                rag_docs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
                 rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
                 rag_context = rag_docs + rag_msgs or None
 

@@ -29,10 +29,11 @@ UNCERTAINTY: If you don't know something, say so in character rather than fabric
 Personality: {personality}"""
 
 
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None, tools=None, auto_resolve=None):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None):
     # auto_resolve: dict[tool_name, async callable(args_dict) -> str]
     # Tools listed here are executed internally; only remaining tool calls are returned to the caller.
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS", "500"))
+    temperature = temperature if temperature is not None else float(os.getenv("TEMPERATURE", "1.5"))
 
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
     if rag_context:
@@ -122,7 +123,7 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
         response = await async_chat_completion(
             model=os.getenv("MODEL_CHAT", "gpt-4o"),
             messages=messages,
-            max_completion_tokens=300,
+            max_completion_tokens=int(os.getenv("ANALYZE_MAX_TOKENS", "500")),
         )
         if response.choices:
             if response.usage:
@@ -133,7 +134,9 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
         logger.exception("analyze_image failed")
         return ""
 
-async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality="medium", n=1):
+async def generate_image(prompt, model="gpt-image-1", size=None, quality=None, n=1):
+    size = size or os.getenv("IMAGE_SIZE", "1024x1024")
+    quality = quality or os.getenv("IMAGE_QUALITY", "medium")
     try:
         response = await asyncio.to_thread(
             client.images.generate,
@@ -166,7 +169,9 @@ async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality=
         return None
 
 
-async def transform_image(image_bytes: bytes, instructions: str, size="1024x1024", quality="medium"):
+async def transform_image(image_bytes: bytes, instructions: str, size=None, quality=None):
+    size = size or os.getenv("IMAGE_SIZE", "1024x1024")
+    quality = quality or os.getenv("IMAGE_QUALITY", "medium")
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         png_buffer = io.BytesIO()
