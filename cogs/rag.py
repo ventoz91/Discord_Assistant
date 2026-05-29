@@ -7,12 +7,8 @@ import io
 
 logger = logging.getLogger("bot.rag")
 from ragfunc.memory import async_store_document, async_count, async_clear_documents, async_clear_all
-from chatbotfunc.utils import fetch_message_history, split_message
+from chatbotfunc.utils import fetch_message_history, split_message, SUPPORTED_DOC_EXTENSIONS
 from AIfunc.responses import generate_gpt_response
-
-TEXT_EXTENSIONS = {'.txt', '.py', '.md', '.js', '.ts', '.jsx', '.tsx', '.json', '.csv', '.yaml', '.yml', '.html', '.css', '.sh', '.toml', '.ini', '.cfg'}
-PDF_EXTENSIONS = {'.pdf'}
-ALL_SUPPORTED = TEXT_EXTENSIONS | PDF_EXTENSIONS
 
 
 class RAGCog(commands.Cog):
@@ -51,7 +47,7 @@ class RAGCog(commands.Cog):
         """Store text or an attached file as a searchable document."""
         content, source = await self._resolve_learn_input(ctx.message.attachments, text, None)
         if content is None:
-            await ctx.send(f"Provide some text or attach a supported file ({', '.join(sorted(ALL_SUPPORTED))}).")
+            await ctx.send(f"Provide some text or attach a supported file ({', '.join(sorted(SUPPORTED_DOC_EXTENSIONS))}).")
             return
         n = await async_store_document(ctx.channel.id, content, source=source)
         await ctx.send(f"Stored **{n}** chunk{'s' if n != 1 else ''} from `{source}` in memory.")
@@ -67,7 +63,7 @@ class RAGCog(commands.Cog):
         try:
             content, source = await self._resolve_learn_input([], text, file)
             if content is None:
-                await ctx.respond(f"Provide some text or attach a supported file ({', '.join(sorted(ALL_SUPPORTED))}).")
+                await ctx.respond(f"Provide some text or attach a supported file ({', '.join(sorted(SUPPORTED_DOC_EXTENSIONS))}).")
                 return
             n = await async_store_document(ctx.channel.id, content, source=source)
             await ctx.respond(f"Stored **{n}** chunk{'s' if n != 1 else ''} from `{source}` in memory.")
@@ -78,12 +74,12 @@ class RAGCog(commands.Cog):
     async def _resolve_learn_input(self, attachments, text, slash_file):
         if slash_file is not None:
             ext = ('.' + slash_file.filename.rsplit('.', 1)[-1].lower()) if '.' in slash_file.filename else ''
-            if ext not in ALL_SUPPORTED:
+            if ext not in SUPPORTED_DOC_EXTENSIONS:
                 return None, None
             return await self._file_to_text(slash_file.url, slash_file.filename), slash_file.filename
         for att in attachments:
             ext = ('.' + att.filename.rsplit('.', 1)[-1].lower()) if '.' in att.filename else ''
-            if ext in ALL_SUPPORTED:
+            if ext in SUPPORTED_DOC_EXTENSIONS:
                 return await self._file_to_text(att.url, att.filename), att.filename
         if text:
             return text, "text"

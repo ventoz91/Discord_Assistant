@@ -100,7 +100,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 - **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe), `snake`, and `adventure` commands.
 - **`cogs/servers.py`** — `ServersCog`: `minecraft` bridge command; Valheim prefix commands + `/valheim start|stop|status` slash group; Enshrouded prefix commands + `/enshrouded start|stop` slash group.
-- **`cogs/fun.py`** — `FunCog`: `commands` (category help menu with buttons), `prompt` and `sandwich` bridge commands; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
+- **`cogs/fun.py`** — `FunCog`: `commands` (category help menu with buttons), `sandwich` bridge command; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
 - **`cogs/rag.py`** — `RAGCog`: `learn` (prefix + slash, supports file attachment), `memory`, `cleardocs`, and `summarize` (bridge commands), `clearall` (prefix only, requires Manage Messages).
 
 ### Slash vs Prefix
@@ -112,18 +112,19 @@ Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and 
 
 ### Support Modules
 
-- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]` and `tools: list` for OpenAI tool calling — returns `(content, tool_calls)` tuple when tools are provided, plain string otherwise), `analyze_image()`, `generate_image()`, `transform_image()`.
+- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]` and `tools: list` for OpenAI tool calling — returns `(content, tool_calls)` tuple when tools are provided, plain string otherwise), `analyze_image()` (returns `str` content directly), `generate_image()`, `transform_image()`.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`.
 - **`chatbotfunc/logger.py`** — `setup_logging()`: configures the `bot` logger hierarchy. Console handler at INFO; `RotatingFileHandler` to `data/bot.log` (5MB × 3 backups) at `LOG_LEVEL` (default `WARNING`). Called once from `main.py`; all modules get a child logger via `logging.getLogger("bot.<module>")`.
-- **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()`.
+- **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()` (async, uses aiohttp); `SUPPORTED_DOC_EXTENSIONS` frozenset — single source of truth for accepted file types, imported by `cogs/chat.py` and `cogs/rag.py`.
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` / `set_active()` persist the selected personality via `ACTIVE_PERSONALITY=`. `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` manage per-channel pins stored in `data/channel_personalities.json`.
 - **`ragfunc/memory.py`** — `ChannelMemory` class (ChromaDB wrapper); `store_message()` (with quality filter via `_should_store()`), `store_document()`, `retrieve()` (with `DISTANCE_THRESHOLD` cosine filter), `clear_documents()`, `clear_all()`; async helpers: `async_store_message`, `async_store_document`, `async_retrieve`, `async_count`, `async_clear_documents`, `async_clear_all`.
 - **`gamefunc/adventure.py`** — `AdventureGame` class and map data. 55×23 grid dungeon built programmatically from room + corridor rectangles. 8-directional movement, items at (x,y) positions rendered as roguelike symbols, viewport rendering (33×15) centered on player. Win condition: pick up the Golden Crown.
-- **`gamefunc/adventure_panel.py`** — `AdventureView(discord.ui.View)`: 3×3 D-pad (8 directions), Pick Up / Inventory / Look / Quit buttons. Direction buttons disable when adjacent tile is a wall. Embed refreshes in place on every action. Timeout clears `bot.active_games`.
+- **`gamefunc/adventure_panel.py`** — `AdventureView(discord.ui.View)`: 3×3 D-pad (8 directions), Pick Up / Inventory / Look / Quit buttons. Direction buttons disable when adjacent tile is a wall. Embed refreshes in place on every action. Win (Golden Crown pickup) and timeout both clear `bot.active_games` and disable all buttons.
+- **`gamefunc/snake_panel.py`** — `SnakeView(discord.ui.View)`: ⬆⬅⬇➡ D-pad buttons + Quit; embed edits in place on every move. Tracks score (apples eaten). Win/quit/timeout all clear `bot.active_games`.
 - **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (not the `mcrcon` library, which uses `signal.alarm()` and crashes outside the main thread).
 - **`gamefunc/minecraft_panel.py`** — `MinecraftPanel` Discord UI with live status embed and button enable/disable rules.
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only).
-- **`funfunc/`** — Image search (Google CSE), web search (`web_search.py`, Tavily-backed — used by the AI `google_search` tool), GPT search prompt, sandwich generator.
+- **`funfunc/`** — Image search (Google CSE), web search (`web_search.py`, Tavily-backed — used by the AI `google_search` tool), sandwich generator.
 
 ### Shared State
 
@@ -144,7 +145,7 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 5. Worker calls `_handle_message` sequentially — one message at a time per channel, different channels process independently
 6. Resolves `channel_behaviour` = channel pin (if set) or global `bot.chatgpt_behaviour`
 7. Processes image attachments via `analyze_image()` if present in an allowed channel; sends response, then stores both the user prompt and analysis result in RAG as tagged message entries using real Discord message IDs
-8. If a supported file is attached, downloads it, stores in ChromaDB via `async_store_document`, breaks
+8. If a supported file is attached (and `_should_respond()` is true), downloads it, stores in ChromaDB via `async_store_document`, breaks
 9. Calls `_should_respond()`: True if bot is @mentioned (any channel) OR if channel is in `CHANNEL_IDS` and no human @mentions are present
 10. Stores user message in ChromaDB via `async_store_message` (filtered by `_should_store()` — junk skipped)
 11. Retrieves RAG context: top-5 document chunks + top-`RAG_MESSAGE_CONTEXT` message chunks, both filtered by `DISTANCE_THRESHOLD`
@@ -169,13 +170,12 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 | — | `/personality change\|new\|list\|remove` | Personality slash commands |
 | `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate conversation between two personalities |
 | `!game X\|O` | `/game` | Play Tic-Tac-Toe |
-| `!snake` | `/snake` | Play Snake |
+| `!snake` | `/snake` | Play Snake (button D-pad, score tracked, panel-based) |
 | `!adventure` | `/adventure` | ASCII dungeon game (QUD-style grid map, 8-directional movement) |
 | `!minecraft` | `/minecraft` | Open the Minecraft server management panel |
 | `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
 | `!commands` | `/commands` | Browse all bot commands by category (button menu) |
-| `!prompt <topic>` | `/prompt` | Generate a Google search URL for a topic |
 | `!sandwich` | `/sandwich` | Generate a random sandwich |
 | `!pin [n]` | `/personality pin [n]` | Pin personality #n to this channel |
 | `!unpin` | `/personality unpin` | Remove channel personality pin |

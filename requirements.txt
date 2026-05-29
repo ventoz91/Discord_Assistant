@@ -6,14 +6,12 @@ aiohttp
 python-dotenv
 # Discord_Bot/funfunc/image_search.py
 google-api-python-client==2.187.0
-# Discord_Bot/AIfunc/simulate.py, chatbotfunc/utils.py, funfunc/prompt.py, main.py
+# Discord_Bot/AIfunc/simulate.py, chatbotfunc/utils.py, main.py
 openai==2.15.0
 # Discord_Bot/main.py
 pillow==12.1.0
 # Discord_Bot/gamefunc/valheim.py
 psutil==7.2.1
-# Discord_Bot/main.py
-requests==2.32.5
 
 py-cord
 chromadb

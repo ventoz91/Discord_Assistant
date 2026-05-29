@@ -4,11 +4,8 @@ import logging
 import time
 import os
 import re
-from dotenv import load_dotenv
 
 logger = logging.getLogger("bot.memory")
-
-load_dotenv()
 
 # ChromaDB persists to disk here — survives bot restarts
 _DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'chroma')

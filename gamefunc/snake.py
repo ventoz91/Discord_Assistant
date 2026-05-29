@@ -32,9 +32,9 @@ class SnakeGame:
 
         return True
 
-    def render(self):
-        grid = [[' ' for _ in range(self.width)] for _ in range(self.height)]
-        for x, y in self.snake:
-            grid[y][x] = 'S'
-        grid[self.apple[1]][self.apple[0]] = 'A'
-        return "\n".join("".join(row) for row in grid)
+    def render(self) -> str:
+        grid = [['·'] * self.width for _ in range(self.height)]
+        for i, (x, y) in enumerate(self.snake):
+            grid[y][x] = '▣' if i == 0 else '█'
+        grid[self.apple[1]][self.apple[0]] = '◆'
+        return '\n'.join(''.join(row) for row in grid)

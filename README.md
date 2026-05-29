@@ -12,7 +12,7 @@ A personal Discord bot with GPT chat, image generation and transformation, game 
 - **Web search** — bot looks up current information in conversation via tool calling (Tavily); incorporates live results into its in-character response
 - **Personality system** — short character descriptors injected into a shared base system prompt; switchable at runtime, pinnable per-channel, persists across restarts
 - **Conversation simulation** — two bot personalities argue a topic via `!simulate` / `/simulate`
-- **Mini-games** — Tic-Tac-Toe (`!game` / `/game`), Snake (`!snake` / `/snake`), and a QUD-style ASCII dungeon (`!adventure` / `/adventure`) with an 8-directional grid map, items, and a win condition
+- **Mini-games** — Tic-Tac-Toe (`!game` / `/game`), Snake (`!snake` / `/snake`, panel-based with D-pad buttons and score tracking), and a QUD-style ASCII dungeon (`!adventure` / `/adventure`) with an 8-directional grid map, items, and a win condition
 - **Game server management** — Minecraft (vanilla & modded) panel with live status; Valheim and Enshrouded server commands
 - **Slash commands** — every command available as both `!prefix` and `/slash`
 - **Cog-based architecture** — each feature domain lives in its own `cogs/` module, hot-reloadable at runtime
@@ -213,7 +213,7 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 | Prefix | Slash | Description |
 |---|---|---|
 | `!game X\|O` | `/game` | Play Tic-Tac-Toe (choose your symbol) |
-| `!snake` | `/snake` | Play Snake (w/a/s/d to move) |
+| `!snake` | `/snake` | Play Snake (button D-pad, score tracked) |
 | `!adventure` | `/adventure` | ASCII dungeon (QUD-style grid, 8-directional movement, items, win condition) |
 
 ### Game Servers
@@ -233,7 +233,6 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 |---|---|---|
 | `!commands` | `/commands` | Browse all bot commands by category (button menu) |
 | `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate a conversation between two personalities |
-| `!prompt <topic>` | `/prompt <topic>` | Generate a Google search URL for a topic via GPT |
 | `!sandwich` | `/sandwich` | Generate a random sandwich |
 
 ## Architecture
@@ -264,19 +263,19 @@ gamefunc/
   adventure.py              — AdventureGame: 55×23 grid dungeon, 8-dir movement,
                               item positions, viewport renderer (33×15)
   adventure_panel.py        — AdventureView: D-pad buttons, embed-in-place refresh,
-                              timeout cleanup
+                              win and timeout both clear active_games
+  snake.py                  — SnakeGame (pure game logic)
+  snake_panel.py            — SnakeView: D-pad buttons, score tracking, embed-in-place
   minecraft.py              — MinecraftServer (thread-safe async RCON, no signal module)
   minecraft_panel.py        — MinecraftPanel Discord UI (buttons, live status)
   valheim.py                — ValheimServer, EnshroudedServer (Windows batch/exe)
   tictactoe.py              — play_tic_tac_toe
-  snake.py                  — SnakeGame
 ragfunc/
   memory.py                 — ChannelMemory (ChromaDB wrapper); store_message, store_document,
                               retrieve, clear methods; async helpers
 funfunc/
   image_search.py           — Google Custom Search API wrapper (image search)
   web_search.py             — Tavily web search wrapper (AI google_search tool)
-  prompt.py                 — GPTSearchPrompt
   sandwich.py               — random sandwich generator
 data/
   chroma/                   — ChromaDB persistent vector store (auto-created, gitignored)

@@ -5,21 +5,16 @@ import logging
 import os
 import io
 import json
-import aiohttp
 import asyncio
 import base64
-from dotenv import load_dotenv
 from PIL import Image
-load_dotenv()
 
 logger = logging.getLogger("bot.responses")
 
-# Initialize the OpenAI client with your API key
-openai_api_key = os.environ["OPENAI_API_KEY"]
-if openai_api_key is None:
-    raise ValueError("No OpenAI API key found. Make sure to set the OPENAI_API_KEY environment variable.")
+openai_api_key = os.getenv("OPENAI_API_KEY")
+if not openai_api_key:
+    raise ValueError("OPENAI_API_KEY not set.")
 client = OpenAI(api_key=openai_api_key)
-openai.api_key = openai_api_key
 
 BASE_SYSTEM_PROMPT = """You are an AI assistant living in a Discord server. Your responses are shaped entirely by the personality below — treat it as your identity, not a costume.
 
@@ -34,11 +29,10 @@ UNCERTAINTY: If you don't know something, say so in character rather than fabric
 Personality: {personality}"""
 
 
-#Genereate gpt response with chat history and current behaviour
 async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None, tools=None, auto_resolve=None):
     # auto_resolve: dict[tool_name, async callable(args_dict) -> str]
     # Tools listed here are executed internally; only remaining tool calls are returned to the caller.
-    max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS"))
+    max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS", "500"))
 
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
     if rag_context:
@@ -114,25 +108,30 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         return (err, []) if tools else err
     
 
-#Anylyzes images with history and personality context
-async def analyze_image(base64_image, instructions, message_history, chatgpt_behaviour):
+async def analyze_image(base64_image: str, instructions: str, message_history: list, chatgpt_behaviour: str) -> str:
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
     messages = [{"role": "system", "content": system_content}] + message_history
-    messages.append({"role": "user", "content": [{"type": "text", "text": instructions}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]})
-
-    payload = {
-        "model": os.getenv("MODEL_CHAT", "gpt-4o"),
-        "messages": messages,
-        "max_completion_tokens": 300
-    }
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {openai_api_key}"}
-
-    async with aiohttp.ClientSession() as session:
-        async with session.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
-            response_json = await response.json()
-            if 'usage' in response_json:
-                logger.debug("analyze_image tokens: %d", response_json['usage']['total_tokens'])
-            return response_json
+    messages.append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": instructions},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+        ],
+    })
+    try:
+        response = await async_chat_completion(
+            model=os.getenv("MODEL_CHAT", "gpt-4o"),
+            messages=messages,
+            max_completion_tokens=300,
+        )
+        if response.choices:
+            if response.usage:
+                logger.debug("analyze_image tokens: %d", response.usage.total_tokens)
+            return response.choices[0].message.content or ""
+        return ""
+    except Exception:
+        logger.exception("analyze_image failed")
+        return ""
 
 async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality="medium", n=1):
     try:
@@ -151,7 +150,7 @@ async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality=
             return None
 
         image_bytes = base64.b64decode(image_b64)
-        return image_bytes  # return raw bytes; save to file or convert to data URL as needed
+        return image_bytes
 
     except openai.BadRequestError as e:
         try:

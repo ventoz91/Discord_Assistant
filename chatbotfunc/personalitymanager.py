@@ -1,7 +1,6 @@
 import random
 import os
 import json
-from chatbotfunc.utils import async_chat_completion
 
 _CHANNEL_PIN_PATH = os.path.join("data", "channel_personalities.json")
 
@@ -114,21 +113,3 @@ class PersonalityManager:
             return True
         return False
 
-    def get_random_personality(self):
-        return random.choice(self.personalities)
-
-    def get_personality(self, index):
-        if 0 <= index < len(self.personalities):
-            return self.personalities[index]
-        return None
-
-    async def get_personality_name(self, model, personality, temperature=0.7):
-        prompt = f"As a {personality}, if you had a first and last name, what would it be? Please type first and last name only"
-        response = await async_chat_completion(
-            model=model,
-            messages=[{"role": "system", "content": prompt}],
-            temperature=temperature,
-            top_p=0.9,
-            max_completion_tokens=10,
-        )
-        return response.choices[0].message.content.strip()

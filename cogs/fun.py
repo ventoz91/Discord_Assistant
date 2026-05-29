@@ -1,10 +1,8 @@
 import discord
 from discord.ext import commands, bridge
 import logging
-import os
 import asyncio
 from io import BytesIO
-from funfunc.prompt import GPTSearchPrompt
 from funfunc.sandwich import make_random_sandwich
 from AIfunc.simulate import ConversationSimulator
 from AIfunc.responses import generate_image
@@ -52,7 +50,6 @@ _CATEGORIES: dict[str, tuple[discord.Color, list[tuple[str, str]]]] = {
     ]),
     "🎲 Misc": (discord.Color.teal(), [
         ("`!sandwich` / `/sandwich`", "Generate a random sandwich with an image"),
-        ("`!prompt <topic>` / `/prompt`", "Generate a Google search URL for a topic"),
     ]),
 }
 
@@ -64,7 +61,7 @@ def _home_embed() -> discord.Embed:
         color=discord.Color.blurple(),
     )
     for label, (_, entries) in _CATEGORIES.items():
-        embed.add_field(name=label, value=f"{len(entries)} commands", inline=True)
+        embed.add_field(name=label, value=f"{len(entries)} command{'s' if len(entries) != 1 else ''}", inline=True)
     return embed
 
 
@@ -79,7 +76,17 @@ def _category_embed(label: str) -> discord.Embed:
 class _CommandsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=120)
+        self.message: discord.Message | None = None
         self._show_home()
+
+    async def on_timeout(self):
+        for child in self.children:
+            child.disabled = True
+        if self.message:
+            try:
+                await self.message.edit(view=self)
+            except Exception:
+                pass
 
     def _show_home(self):
         self.clear_items()
@@ -121,24 +128,8 @@ class FunCog(commands.Cog):
     async def show_commands(self, ctx):
         await ctx.defer()
         view = _CommandsView()
-        await ctx.respond(embed=_home_embed(), view=view)
-
-    # ── Prompt ────────────────────────────────────────────────────────────────
-
-    @bridge.bridge_command(description="Generate a Google search URL for a topic via GPT")
-    async def prompt(self, ctx, *, topic: str):
-        await ctx.defer()
-        try:
-            api_key = os.getenv("OPENAI_API_KEY")
-            generator = GPTSearchPrompt(api_key, os.getenv("MODEL_CHAT", "gpt-3.5-turbo"))
-            search_query = await generator.generate_search_query(topic)
-            if search_query:
-                await ctx.respond(GPTSearchPrompt.construct_google_search_url(search_query))
-            else:
-                await ctx.respond("Failed to generate search query.")
-        except Exception as e:
-            logger.exception("prompt command failed")
-            await ctx.respond(f"Error: {e}")
+        msg = await ctx.respond(embed=_home_embed(), view=view)
+        view.message = await msg.original_response() if hasattr(msg, "original_response") else msg
 
     # ── Simulate (prefix keeps flexible *args; slash has explicit params) ──────
 

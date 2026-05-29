@@ -1,15 +1,21 @@
 import openai
 import asyncio
+import aiohttp
 import logging
 import os
 import io
 import re
 import base64
-import requests
 from PIL import Image
 from discord.ext import commands
 
 logger = logging.getLogger("bot.utils")
+
+SUPPORTED_DOC_EXTENSIONS = frozenset({
+    '.txt', '.py', '.md', '.js', '.ts', '.jsx', '.tsx',
+    '.json', '.csv', '.yaml', '.yml', '.html', '.css',
+    '.sh', '.toml', '.ini', '.cfg', '.pdf',
+})
 
 
 def split_message(message_content, max_length=1995):
@@ -102,14 +108,16 @@ def format_error_message(error):
 
 async def encode_discord_image(image_url: str):
     try:
-        response = requests.get(image_url)
-        image = Image.open(io.BytesIO(response.content)).convert('RGB')
+        async with aiohttp.ClientSession() as session:
+            async with session.get(image_url) as resp:
+                content = await resp.read()
+        image = Image.open(io.BytesIO(content)).convert('RGB')
         if max(image.size) > 1000:
             image.thumbnail((1000, 1000))
         buffered = io.BytesIO()
         image.save(buffered, format="JPEG")
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
-    except Exception as e:
+    except Exception:
         logger.exception("encode_discord_image failed")
         return None
 
@@ -122,7 +130,6 @@ async def fetch_message_history(channel, bot: commands.Bot):
             message_history.append({"role": "user" if message.author != bot.user else "assistant", "content": message.content})
     return message_history[::-1]
 
-# Asynchronous function to get chat completions from OpenAI
 async def async_chat_completion(*args, **kwargs):
     response = await asyncio.to_thread(openai.chat.completions.create, *args, **kwargs)
     return response

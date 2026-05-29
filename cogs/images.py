@@ -2,7 +2,6 @@ import discord
 from discord.ext import commands, bridge
 import logging
 import io
-from io import BytesIO
 import aiohttp
 import json
 import openai
@@ -32,7 +31,7 @@ class ImagesCog(commands.Cog):
             self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_generated"] = image_bytes
             await ctx.respond(
                 f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}",
-                file=discord.File(fp=BytesIO(image_bytes), filename="image.png"),
+                file=discord.File(fp=io.BytesIO(image_bytes), filename="image.png"),
             )
         except openai.BadRequestError as e:
             logger.warning("image request rejected by OpenAI: %s", e)
@@ -54,7 +53,7 @@ class ImagesCog(commands.Cog):
             self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_transformed"] = result
             await ctx.respond(
                 f"Transformed Image:\nInstructions: {instructions}",
-                file=discord.File(fp=BytesIO(result), filename="transformed_image.png"),
+                file=discord.File(fp=io.BytesIO(result), filename="transformed_image.png"),
             )
         except Exception as e:
             logger.exception("transform failed")
@@ -71,16 +70,11 @@ class ImagesCog(commands.Cog):
                 await ctx.respond(image_url)
                 base64_image = await encode_discord_image(image_url)
                 if base64_image:
-                    analysis_result = await analyze_image(
+                    description = await analyze_image(
                         base64_image, "Describe this image.",
                         [{"role": "user", "content": query}],
                         self.bot.chatgpt_behaviour,
-                    )
-                    description = (
-                        analysis_result.get("choices", [{}])[0]
-                        .get("message", {})
-                        .get("content", "No description available.")
-                    )
+                    ) or "No description available."
                     await ctx.channel.send(f"Image Description: {description}")
                 else:
                     await ctx.channel.send("Could not encode image for analysis.")

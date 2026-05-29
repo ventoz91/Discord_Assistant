@@ -6,7 +6,7 @@ import io
 import json
 import asyncio
 import aiohttp
-from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image
+from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, SUPPORTED_DOC_EXTENSIONS
 
 logger = logging.getLogger("bot.chat")
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
@@ -193,11 +193,8 @@ class ChatCog(commands.Cog):
                         base64_image = await encode_discord_image(attachment.url)
                         instructions = message.content if message.content else "What's in this image?"
                         message_history = await fetch_message_history(message.channel, self.bot)
-                        analysis_result = await analyze_image(
+                        response_text = await analyze_image(
                             base64_image, instructions, message_history, channel_behaviour
-                        )
-                        response_text = (
-                            analysis_result.get("choices", [{}])[0].get("message", {}).get("content", "")
                         )
                         sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
                         if response_text:
@@ -209,12 +206,10 @@ class ChatCog(commands.Cog):
         if image_processed:
             return
 
-        if message.attachments:
+        if message.attachments and self._should_respond(message):
             for attachment in message.attachments:
                 fname = attachment.filename.lower()
-                if any(fname.endswith(ext) for ext in ('.txt', '.py', '.md', '.js', '.ts', '.jsx', '.tsx',
-                                                        '.json', '.csv', '.yaml', '.yml', '.html', '.css',
-                                                        '.sh', '.toml', '.ini', '.cfg', '.pdf')):
+                if any(fname.endswith(ext) for ext in SUPPORTED_DOC_EXTENSIONS):
                     text_file_content = await self._download_file_as_text(attachment.url, attachment.filename)
                     if text_file_content:
                         await async_store_document(message.channel.id, text_file_content, source=attachment.filename)

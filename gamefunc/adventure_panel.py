@@ -80,6 +80,16 @@ class AdventureView(discord.ui.View):
     async def _update(self, interaction: discord.Interaction):
         self._rebuild()
         await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        if self.game.won:
+            self.bot.active_games[self.channel_id] = False
+            self.stop()
+            for child in self.children:
+                child.disabled = True
+            if self.message:
+                try:
+                    await self.message.edit(view=self)
+                except Exception:
+                    pass
 
     async def _end_game(self, interaction: discord.Interaction, reason: str):
         self.bot.active_games[self.channel_id] = False
