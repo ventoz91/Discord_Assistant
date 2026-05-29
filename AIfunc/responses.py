@@ -2,12 +2,13 @@ from chatbotfunc.utils import async_chat_completion
 from openai import OpenAI
 import openai
 import os
+import io
+import json
 import aiohttp
 import asyncio
 import base64
 from dotenv import load_dotenv
 from PIL import Image
-import io
 load_dotenv()
 
 # Initialize the OpenAI client with your API key
@@ -31,8 +32,9 @@ Personality: {personality}"""
 
 
 #Genereate gpt response with chat history and current behaviour
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None, tools=None):
-    # Load the max tokens from environment if not provided
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None, tools=None, auto_resolve=None):
+    # auto_resolve: dict[tool_name, async callable(args_dict) -> str]
+    # Tools listed here are executed internally; only remaining tool calls are returned to the caller.
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS"))
 
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
@@ -59,6 +61,49 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         choice = response.choices[0].message
         content = choice.content or ""
         tool_calls = choice.tool_calls or []
+
+        # Auto-resolve tools (e.g. web search): execute them and make a second API call
+        # so the model can incorporate the results into its final response.
+        if auto_resolve and tool_calls:
+            resolvable = [tc for tc in tool_calls if tc.function.name in auto_resolve]
+            dispatch = [tc for tc in tool_calls if tc.function.name not in auto_resolve]
+
+            if resolvable:
+                # Build follow-up: include only the resolvable tool calls in the assistant
+                # message so every tool_call_id has a matching tool result.
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": content,
+                    "tool_calls": [
+                        {"id": tc.id, "type": "function",
+                         "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                        for tc in resolvable
+                    ]
+                }
+                follow_up = list(messages) + [assistant_msg]
+                for tc in resolvable:
+                    result = await auto_resolve[tc.function.name](json.loads(tc.function.arguments))
+                    follow_up.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+                # Exclude auto-resolved tools from the follow-up to prevent re-triggering
+                follow_up_tools = [t for t in (tools or []) if t["function"]["name"] not in auto_resolve]
+                follow_up_kwargs = dict(
+                    model=os.getenv("MODEL_CHAT"),
+                    messages=follow_up,
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_completion_tokens=max_tokens,
+                )
+                if follow_up_tools:
+                    follow_up_kwargs["tools"] = follow_up_tools
+
+                follow_up_response = await async_chat_completion(**follow_up_kwargs)
+                if follow_up_response.choices:
+                    follow_up_choice = follow_up_response.choices[0].message
+                    content = follow_up_choice.content or ""
+                    dispatch = dispatch + (follow_up_choice.tool_calls or [])
+                tool_calls = dispatch
+
         return (content, tool_calls) if tools else content
     except Exception as e:
         error_msg = f"Error generating response: {e}"

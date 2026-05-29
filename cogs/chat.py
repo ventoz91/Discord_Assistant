@@ -9,6 +9,7 @@ from colorama import Fore
 from chatbotfunc.utils import fetch_message_history, async_chat_completion, split_message, format_error_message, encode_discord_image
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
+from funfunc.web_search import web_search
 
 RATE_LIMIT = 0.5
 
@@ -41,6 +42,24 @@ _TRANSFORM_TOOL = {
         }
     }
 }
+
+_SEARCH_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "google_search",
+        "description": "Search the web for current information. Use this for recent events, specific facts, or anything that may be outside your training data.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query"}
+            },
+            "required": ["query"]
+        }
+    }
+}
+
+async def _execute_search(args: dict) -> str:
+    return await web_search(args.get("query", ""))
 
 
 class ChatCog(commands.Cog):
@@ -211,12 +230,13 @@ class ChatCog(commands.Cog):
                 message_history.append({"role": "user", "content": message.content})
 
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})
-                tools = [_GENERATE_TOOL]
+                tools = [_GENERATE_TOOL, _SEARCH_TOOL]
                 if ch_state.get("last_transformed") or ch_state.get("last_generated"):
                     tools.append(_TRANSFORM_TOOL)
 
                 gpt_response, tool_calls = await generate_gpt_response(
-                    message_history, channel_behaviour, rag_context=rag_context, tools=tools
+                    message_history, channel_behaviour, rag_context=rag_context, tools=tools,
+                    auto_resolve={"google_search": _execute_search}
                 )
 
                 for tc in tool_calls:
