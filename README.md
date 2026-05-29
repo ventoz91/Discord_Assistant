@@ -4,23 +4,22 @@ A personal Discord bot with GPT chat, image generation and transformation, game 
 
 ## Features
 
-- **GPT chat** — responds in allowed channels using a configurable personality/system prompt; always responds to direct @mentions; per-channel message queue prevents concurrent processing races
-- **RAG memory** — per-channel persistent memory backed by ChromaDB; stores chat history and uploaded documents, retrieves semantically relevant context on every response
-- **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`, or naturally in conversation ("make me a picture of a crab")
-- **Image transformation** — native image editing via `!transform` / `/transform`, or naturally in conversation ("make it blue"); per-channel image state enables chaining transforms
-- **Image analysis** — describe attached images in chat, or search and describe via `!image` / `/image`
-- **Web search** — bot looks up current information in conversation via tool calling (Tavily); incorporates live results into its in-character response
-- **Personality system** — short character descriptors injected into a shared base system prompt; switchable at runtime, pinnable per-channel, persists across restarts
-- **Conversation simulation** — two bot personalities argue a topic via `!simulate` / `/simulate`
-- **Mini-games** — Tic-Tac-Toe (`!game` / `/game`), Snake (`!snake` / `/snake`, panel-based with D-pad buttons and score tracking), and a QUD-style ASCII dungeon (`!adventure` / `/adventure`) with an 8-directional grid map, items, and a win condition
-- **Game server management** — Minecraft (vanilla & modded) panel with live status; Valheim and Enshrouded server commands
-- **Slash commands** — every command available as both `!prefix` and `/slash`
-- **Cog-based architecture** — each feature domain lives in its own `cogs/` module, hot-reloadable at runtime
+- **GPT chat** — responds in configured channels and always to @mentions; in-character responses shaped by the active personality; per-channel message queue prevents concurrent processing races
+- **RAG memory** — per-channel long-term memory backed by ChromaDB; stores chat history and uploaded documents; semantically relevant context is retrieved and injected on every response; use `!summarize` for a TL;DR of recent conversation
+- **Image generation** — gpt-image-1 via `!generate` / `/generate`, or naturally in conversation ("draw me a crab")
+- **Image transformation** — AI image editing via `!transform` / `/transform`, or naturally in conversation ("make it blue"); transforms chain — each transform uses the previous result, not the original
+- **Image analysis** — describe images attached in chat; search and describe via `!image` / `/image`
+- **Web search** — automatically searches the web via Tavily tool calling when the question needs current info; results are incorporated into the bot's in-character response
+- **Personality system** — short character descriptors injected into a shared base prompt; switch at runtime, pin per-channel, persist across restarts; use `!commands` to browse all commands by category
+- **Conversation simulation** — simulate a debate between two personalities on any topic via `!simulate` / `/simulate`
+- **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) with an 8-directional grid map, items, and a win condition — all panel-based (no channel spam)
+- **Game server management** — Minecraft (vanilla & modded) live panel with RCON; Valheim and Enshrouded start/stop commands
+- **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
 
 ## Requirements
 
 - Python 3.10+
-- kitty terminal (for Minecraft server launch on Linux)
+- kitty terminal — required on Linux for Minecraft server start (launches the server process in a new terminal window); not needed for any other feature
 
 Install Python dependencies:
 
@@ -97,7 +96,7 @@ DISTANCE_THRESHOLD=0.8
 # Google Search
 # ─────────────────────────────────────────────
 
-# Google Custom Search API key — used by !image and !prompt commands
+# Google Custom Search API key — used by the !image command
 GOOGLE_API_KEY=your_google_api_key
 
 # Google Custom Search Engine ID — configure at programmablesearchengine.google.com
@@ -170,7 +169,7 @@ python main.py
 
 ## Commands
 
-All commands are available as both `!prefix` and `/slash`. The table below shows both forms.
+Most commands work as both `!prefix` and `/slash`. Exceptions are noted — a few are prefix-only (e.g. `!clearall`) or have separate prefix/slash implementations due to Discord API differences.
 
 ### Chat & Personality
 
@@ -202,8 +201,8 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 | Prefix | Slash | Description |
 |---|---|---|
 | `!generate <prompt>` | `/generate <prompt>` | Generate an image with gpt-image-1 |
-| `!transform <instructions>` | `/transform` | Transform an attached image |
-| `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel |
+| `!transform <instructions>` | `/transform` | Transform an attached image (slash also accepts an `attachment` option) |
+| `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel (uses last transformed, falls back to last generated) |
 | `!image <query>` | `/image <query>` | Search Google Images and describe the result |
 | *(natural language)* | — | Ask the bot to generate or transform an image in conversation |
 
@@ -232,8 +231,8 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 | Prefix | Slash | Description |
 |---|---|---|
 | `!commands` | `/commands` | Browse all bot commands by category (button menu) |
-| `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate a conversation between two personalities |
-| `!sandwich` | `/sandwich` | Generate a random sandwich |
+| `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate a debate between two personalities (optional: specify personality indices; defaults to two random picks) |
+| `!sandwich` | `/sandwich` | Generate a random sandwich with an AI-generated image |
 
 ## Architecture
 
@@ -241,11 +240,11 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 main.py                     — bot init, shared state, load_extension calls, bot.run()
 cogs/
   chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler, RAG integration, AI image tools)
-  images.py                 — generate, transform, image, variation commands
+  images.py                 — generate, transform, image commands
   personality.py            — prefix + slash personality commands
   games.py                  — game (Tic-Tac-Toe), snake, adventure commands
   servers.py                — minecraft, valheim, enshrouded server commands
-  fun.py                    — commands (help menu), prompt, simulate, sandwich commands
+  fun.py                    — commands (help menu), simulate, sandwich commands
   rag.py                    — learn, memory, cleardocs, clearall commands
 AIfunc/
   responses.py              — BASE_SYSTEM_PROMPT constant; OpenAI wrappers:
@@ -258,6 +257,8 @@ chatbotfunc/
                               console at INFO, file at LOG_LEVEL (default WARNING)
   utils.py                  — fetch_message_history, async_chat_completion,
                               split_message, format_error_message, encode_discord_image
+                              (async, aiohttp); SUPPORTED_DOC_EXTENSIONS frozenset
+                              (single source of truth for accepted file types)
   personalitymanager.py     — PersonalityManager (reads/writes .env; get/set_active for persistence; get/set/clear_channel_personality for per-channel pins)
 gamefunc/
   adventure.py              — AdventureGame: 55×23 grid dungeon, 8-dir movement,
@@ -295,12 +296,12 @@ Every qualifying message the bot processes is stored in a per-channel ChromaDB c
 
 **Deduplication:** stored entries use Discord message IDs as ChromaDB document IDs — re-processing the same message never creates duplicates.
 
-**Image analysis:** when you share an image in an allowed channel, the bot's description is stored in RAG so it can reference past images in future conversations.
+**Image analysis:** when you share an image in an allowed channel, the bot describes it in character and stores that description in RAG so it can reference past images in future conversations.
 
-**Supported file types for `!learn`:**
+**File auto-storage:** dropping a supported file in an allowed channel stores it in RAG automatically — same result as `!learn`, no command needed. Supported types:
 `.txt` `.py` `.md` `.js` `.ts` `.jsx` `.tsx` `.json` `.csv` `.yaml` `.yml` `.html` `.css` `.sh` `.toml` `.ini` `.cfg` `.pdf`
 
-PDFs are text-extracted via `pypdf`. Scanned/image-only PDFs won't have extractable text.
+PDFs are text-extracted via `pypdf`. Scanned/image-only PDFs won't have usable text.
 
 **Message expiry:** chat messages are tagged with an expiry timestamp at write time (`MESSAGE_TTL_DAYS`, default 30). Expired messages are excluded from retrieval but not deleted from the DB. Documents stored via `!learn` never expire.
 
@@ -326,8 +327,8 @@ Use `!pin [n]` / `/personality pin [n]` to lock a specific personality to a chan
 ## Known Limitations
 
 - **Valheim / Enshrouded commands** are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
-- **`!transform last` / AI transform** requires at least one `!generate` or `!transform` call in the current session — image bytes are stored per-channel in memory and not persisted across restarts.
-- **Scanned PDFs** — `!learn` can only extract text from text-based PDFs. Image-only scans won't work.
-- **Re-uploading files** — if a file was stored before the chunk size was increased to 3000 chars, re-upload it with `!learn` to get better chunking.
-- **RAG distance threshold** — `DISTANCE_THRESHOLD` (default `0.8`) is set in `.env`. If relevant context is being dropped, raise it; if too much noise is coming through, lower it. Range is 0–2.
-- **RAG message expiry** — expired messages are excluded from retrieval but remain in the DB. Run `!clearall` to fully purge a channel's history if the DB grows large.
+- **Image transform state** — `!transform last` and AI-triggered transforms require at least one `!generate` or `!transform` in the current session. Image bytes live in memory and are lost on restart.
+- **Scanned PDFs** — `!learn` and file auto-storage extract text via `pypdf`. Image-only/scanned PDFs produce no usable text.
+- **RAG distance threshold** — `DISTANCE_THRESHOLD` (default `0.8`, range 0–2) controls retrieval strictness. Raise it if relevant context is being dropped; lower it if too much noise is coming through. Set in `.env`.
+- **RAG message expiry** — expired messages are excluded from retrieval but not deleted. Run `!clearall` to fully purge a channel if the DB grows large.
+- **RAG memory is per-channel** — each channel has its own isolated collection; `!clearall` only affects the current channel.
