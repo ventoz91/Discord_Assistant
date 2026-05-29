@@ -71,12 +71,25 @@ Ollama support for chat completions — swap OpenAI client base_url to localhost
   Ollama is OpenAI-compatible so changes are minimal; keep OpenAI for image gen/analysis
 per-channel model config — some channels use local model (cheap), others use cloud (quality)
 
+--- TOMORROW: OLLAMA REMOTE SESSION ---
+Goal: run Ollama on the server, point Ralph at it for chat, keep OpenAI for images
+Server: 2x Xeon E5-2667 v2 (32 threads), ~100GB DDR3, GTX 1070 8GB (GPU passthrough confirmed)
+
+Server side:
+  install Ollama on server VM (use plain nvidia CUDA build, not ROCm — GTX 1070 is CUDA-only)
+  pull target model — Qwen2.5 7B Q4 (~4.7GB, fits in VRAM) or Llama 3.1 8B Q4
+  set OLLAMA_HOST=0.0.0.0 so bot can reach it over the network (not just localhost)
+  larger models (32B+) can run CPU-only on 100GB RAM, expect ~4-8 tok/s
+
+Bot side (small code change in responses.py):
+  add OLLAMA_BASE_URL=http://<server-ip>:11434/v1 to .env
+  update MODEL_CHAT to match the pulled Ollama model name
+  create chat_client = OpenAI(base_url=ollama_url, api_key="ollama") when env var is set
+  generate_gpt_response and analyze_image use chat_client; image gen/transform stay on OpenAI client
+  vision gotcha: analyze_image needs a vision-capable model — may want OPENAI_MODEL_VISION=gpt-4o
+    as a separate env var so image analysis always hits OpenAI regardless of OLLAMA_BASE_URL
+
 --- WAITING: SERVER MOVE ---
 Notes: server has 2x Xeon E5-2667 v2 (32 threads), ~100GB DDR3, GTX 1070 8GB passed through to VM — GPU passthrough already confirmed working
-install Ollama on server VM (use plain nvidia CUDA build, not ROCm — GTX 1070 is CUDA-only)
-set OLLAMA_HOST=0.0.0.0 on server so bot can reach it over the network
-point bot at server Ollama instance via OLLAMA_BASE_URL env var instead of localhost
-GTX 1070 caps on-GPU models at 7B Q4 (~4.7GB fits in 8GB VRAM) — Qwen2.5 7B or Llama 3.1 8B Q4 are the targets
-larger models (32B+) can run CPU-only using the 100GB RAM, expect ~4-8 tok/s
 keep OpenAI API for image generation and analysis (no local equivalent)
 consider running ChromaDB on the server too so RAG data persists there rather than locally
