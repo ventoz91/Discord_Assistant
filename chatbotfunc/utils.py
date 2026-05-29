@@ -122,15 +122,20 @@ async def encode_discord_image(image_url: str):
         return None
 
 
-async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: int | None = None):
+async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: int | None = None, return_cutoff: bool = False):
     history_length = int(os.getenv("HISTORYLENGTH", 30))
     message_history = []
+    oldest_ts = None  # unix ts of the oldest message in the returned window
     async for message in channel.history(limit=history_length * 2):
         if message.id == exclude_message_id:
             continue
         if len(message_history) < history_length and message.content:
             message_history.append({"role": "user" if message.author != bot.user else "assistant", "content": message.content})
-    return message_history[::-1]
+            oldest_ts = int(message.created_at.timestamp())
+    message_history = message_history[::-1]
+    if return_cutoff:
+        return message_history, oldest_ts
+    return message_history
 
 async def async_chat_completion(*args, **kwargs):
     response = await asyncio.to_thread(openai.chat.completions.create, *args, **kwargs)

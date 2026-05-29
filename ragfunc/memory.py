@@ -141,13 +141,28 @@ class ChannelMemory:
 
     # ── Reading ───────────────────────────────────────────────────────────────
 
-    def retrieve(self, query: str, k: int = RETRIEVAL_K, doc_type: str = None) -> list[str]:
-        """Return document chunks relevant to query, filtered by distance threshold."""
+    def retrieve(self, query: str, k: int = RETRIEVAL_K, doc_type: str = None, before_ts: int = None) -> list[str]:
+        """Return document chunks relevant to query, filtered by distance threshold.
+
+        If before_ts is set, only entries stored strictly before that unix
+        timestamp are returned. Used to exclude messages already covered by the
+        direct-history recency window, so RAG only surfaces older context.
+        """
         count = self._col.count()
         if count == 0:
             return []
         k = min(k, count)
-        where = {"type": doc_type} if doc_type else None
+        conditions = []
+        if doc_type:
+            conditions.append({"type": doc_type})
+        if before_ts is not None:
+            conditions.append({"ts": {"$lt": int(before_ts)}})
+        if not conditions:
+            where = None
+        elif len(conditions) == 1:
+            where = conditions[0]
+        else:
+            where = {"$and": conditions}
         try:
             results = self._col.query(
                 query_texts=[query],
@@ -213,9 +228,9 @@ async def async_store_document(channel_id: int, text: str, source: str = "upload
     return await asyncio.to_thread(mem.store_document, text, source)
 
 
-async def async_retrieve(channel_id: int, query: str, k: int = RETRIEVAL_K, doc_type: str = None) -> list[str]:
+async def async_retrieve(channel_id: int, query: str, k: int = RETRIEVAL_K, doc_type: str = None, before_ts: int = None) -> list[str]:
     mem = ChannelMemory(channel_id)
-    return await asyncio.to_thread(mem.retrieve, query, k, doc_type)
+    return await asyncio.to_thread(mem.retrieve, query, k, doc_type, before_ts)
 
 
 async def async_count(channel_id: int) -> dict:

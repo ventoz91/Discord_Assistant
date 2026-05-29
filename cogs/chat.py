@@ -221,11 +221,19 @@ class ChatCog(commands.Cog):
 
             async with message.channel.typing():
                 query = message.content or ""
+
+                # Fetch direct history first so we know the recency cutoff. RAG
+                # message retrieval is then restricted to entries older than the
+                # oldest in-history message, so it surfaces relevant *older*
+                # context instead of re-sending what history already contains.
+                message_history, history_cutoff_ts = await fetch_message_history(
+                    message.channel, self.bot, exclude_message_id=message.id, return_cutoff=True
+                )
+
                 rag_docs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
-                rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
+                rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message", before_ts=history_cutoff_ts)
                 rag_context = rag_docs + rag_msgs or None
 
-                message_history = await fetch_message_history(message.channel, self.bot, exclude_message_id=message.id)
                 message_history.append({"role": "user", "content": message.content})
 
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})
