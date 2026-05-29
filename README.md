@@ -65,6 +65,10 @@ MAX_TOKENS=500
 # Set to false to prevent reaction spam without losing the feature.
 REACTION_RESPONSES=true
 
+# Python logging level for data/bot.log (DEBUG / INFO / WARNING / ERROR).
+# Console always shows INFO+. Leave at WARNING for production; use DEBUG when hunting bugs.
+LOG_LEVEL=WARNING
+
 
 # ─────────────────────────────────────────────
 # Chat History & RAG Memory
@@ -249,6 +253,8 @@ AIfunc/
                               analyze_image, generate_image, transform_image
   simulate.py               — ConversationSimulator
 chatbotfunc/
+  logger.py                 — setup_logging(): RotatingFileHandler → data/bot.log,
+                              console at INFO, file at LOG_LEVEL (default WARNING)
   utils.py                  — fetch_message_history, async_chat_completion,
                               split_message, format_error_message, encode_discord_image
   personalitymanager.py     — PersonalityManager (reads/writes .env; get/set_active for persistence; get/set/clear_channel_personality for per-channel pins)

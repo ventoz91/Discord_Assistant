@@ -26,6 +26,7 @@ A single **`.env`** file at the project root holds all configuration:
 - `DISTANCE_THRESHOLD` — Cosine distance cutoff for RAG retrieval (default: 0.8). Results above this are dropped.
 - `MAX_TOKENS` — Max completion tokens for responses
 - `REACTION_RESPONSES` — `true` / `false` — enable or disable emoji reaction responses (default: `true`)
+- `LOG_LEVEL` — Python logging level written to `data/bot.log` (default: `WARNING`). Set to `INFO` or `DEBUG` for more verbose file logging. Console always shows INFO+.
 - `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
 - `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)
 - `MINECRAFT_VANILLA_RCON_PORT` — RCON port (default: 25575)
@@ -113,6 +114,7 @@ Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and 
 
 - **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]` and `tools: list` for OpenAI tool calling — returns `(content, tool_calls)` tuple when tools are provided, plain string otherwise), `analyze_image()`, `generate_image()`, `transform_image()`.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`.
+- **`chatbotfunc/logger.py`** — `setup_logging()`: configures the `bot` logger hierarchy. Console handler at INFO; `RotatingFileHandler` to `data/bot.log` (5MB × 3 backups) at `LOG_LEVEL` (default `WARNING`). Called once from `main.py`; all modules get a child logger via `logging.getLogger("bot.<module>")`.
 - **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()`.
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` / `set_active()` persist the selected personality via `ACTIVE_PERSONALITY=`. `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` manage per-channel pins stored in `data/channel_personalities.json`.
 - **`ragfunc/memory.py`** — `ChannelMemory` class (ChromaDB wrapper); `store_message()` (with quality filter via `_should_store()`), `store_document()`, `retrieve()` (with `DISTANCE_THRESHOLD` cosine filter), `clear_documents()`, `clear_all()`; async helpers: `async_store_message`, `async_store_document`, `async_retrieve`, `async_count`, `async_clear_documents`, `async_clear_all`.
