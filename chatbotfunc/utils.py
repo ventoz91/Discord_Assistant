@@ -1,5 +1,6 @@
 import openai
 import asyncio
+import logging
 import os
 import io
 import re
@@ -7,7 +8,8 @@ import base64
 import requests
 from PIL import Image
 from discord.ext import commands
-from colorama import Fore
+
+logger = logging.getLogger("bot.utils")
 
 
 def split_message(message_content, max_length=1995):
@@ -94,7 +96,7 @@ def format_error_message(error):
         else:
             return f"General Error: {str(error)}"
     except Exception as e:
-        print(f"Error in formatting the error: {e}, Original error: {error}")
+        logger.error("format_error_message failed: %s | original: %s", e, error)
         return "An unexpected error occurred in formatting the error."
 
 
@@ -108,7 +110,7 @@ async def encode_discord_image(image_url: str):
         image.save(buffered, format="JPEG")
         return base64.b64encode(buffered.getvalue()).decode('utf-8')
     except Exception as e:
-        print(Fore.RED + f"Error in encode_discord_image: {e}" + Fore.RESET)
+        logger.exception("encode_discord_image failed")
         return None
 
 

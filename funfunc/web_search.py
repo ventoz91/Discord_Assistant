@@ -1,5 +1,8 @@
+import logging
 import os
 import aiohttp
+
+logger = logging.getLogger("bot.web_search")
 
 TAVILY_URL = "https://api.tavily.com/search"
 
@@ -25,11 +28,11 @@ async def web_search(query: str, num: int = 5) -> str:
             async with session.post(TAVILY_URL, json=payload, headers=headers) as resp:
                 if resp.status != 200:
                     detail = await resp.text()
-                    print(f"Search error detail: HTTP {resp.status} {detail}")
+                    logger.error("Tavily search HTTP %d: %s", resp.status, detail)
                     return f"Search error: HTTP {resp.status}"
                 data = await resp.json()
     except Exception as e:
-        print(f"Search error: {e}")
+        logger.exception("web_search failed")
         return f"Search error: {e}"
 
     parts = []

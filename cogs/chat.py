@@ -1,12 +1,14 @@
 import discord
 from discord.ext import commands
+import logging
 import os
 import io
 import json
 import asyncio
 import aiohttp
-from colorama import Fore
 from chatbotfunc.utils import fetch_message_history, async_chat_completion, split_message, format_error_message, encode_discord_image
+
+logger = logging.getLogger("bot.chat")
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
 from funfunc.web_search import web_search
@@ -89,7 +91,7 @@ class ChatCog(commands.Cog):
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 if response.status != 200:
-                    print(Fore.RED + f"Error downloading file: HTTP {response.status}" + Fore.RESET)
+                    logger.error("file download failed: HTTP %d", response.status)
                     return None
                 raw = await response.read()
         if filename.lower().endswith('.pdf'):
@@ -100,7 +102,7 @@ class ChatCog(commands.Cog):
                 pages = [page.extract_text() or "" for page in reader.pages]
                 return "\n\n".join(p for p in pages if p.strip()) or None
             except Exception as e:
-                print(Fore.RED + f"PDF extraction error: {e}" + Fore.RESET)
+                logger.exception("PDF extraction error")
                 return None
         try:
             return raw.decode('utf-8', errors='replace')
@@ -109,8 +111,7 @@ class ChatCog(commands.Cog):
 
     @commands.Cog.listener()
     async def on_ready(self):
-        print(f'Logged in as {self.bot.user.name}')
-        print(self.bot.chatgpt_behaviour)
+        logger.info("Logged in as %s | personality: %s", self.bot.user.name, self.bot.chatgpt_behaviour)
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction, user):
@@ -137,9 +138,9 @@ class ChatCog(commands.Cog):
             if response.choices:
                 await reaction.message.channel.send(response.choices[0].message.content)
         except Exception as e:
+            logger.exception("on_reaction_add failed")
             msg = format_error_message(e)
             await reaction.message.channel.send(msg)
-            print(Fore.RED + msg + Fore.RESET)
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -170,7 +171,7 @@ class ChatCog(commands.Cog):
             try:
                 await self._handle_message(message)
             except Exception as e:
-                print(Fore.RED + f"[chat] queue error in channel {channel_id}: {e}" + Fore.RESET)
+                logger.exception("queue error in channel %d", channel_id)
             finally:
                 queue.task_done()
 
@@ -185,7 +186,7 @@ class ChatCog(commands.Cog):
             for attachment in message.attachments:
                 if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
                     async with message.channel.typing():
-                        print(f"Processing image: {attachment.filename}")
+                        logger.info("processing image: %s", attachment.filename)
                         base64_image = await encode_discord_image(attachment.url)
                         instructions = message.content if message.content else "What's in this image?"
                         message_history = await fetch_message_history(message.channel, self.bot)
@@ -214,7 +215,7 @@ class ChatCog(commands.Cog):
                     text_file_content = await self._download_file_as_text(attachment.url, attachment.filename)
                     if text_file_content:
                         await async_store_document(message.channel.id, text_file_content, source=attachment.filename)
-                        print(f"Stored {attachment.filename} in RAG memory")
+                        logger.info("stored %s in RAG memory", attachment.filename)
                     break
 
         if self._should_respond(message):

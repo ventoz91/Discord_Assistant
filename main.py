@@ -2,11 +2,11 @@ import os
 from dotenv import load_dotenv
 import discord
 from discord.ext import bridge
-from colorama import init
+from chatbotfunc.logger import setup_logging
 from chatbotfunc.personalitymanager import PersonalityManager
 
 load_dotenv()
-init(autoreset=True)
+setup_logging()
 
 intents = discord.Intents.default()
 intents.messages = True

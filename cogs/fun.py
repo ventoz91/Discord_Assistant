@@ -1,7 +1,10 @@
 import discord
 from discord.ext import commands, bridge
+import logging
 import os
 import asyncio
+
+logger = logging.getLogger("bot.fun")
 from io import BytesIO
 from funfunc.prompt import GPTSearchPrompt
 from funfunc.sandwich import make_random_sandwich
@@ -28,8 +31,8 @@ class FunCog(commands.Cog):
             else:
                 await ctx.respond("Failed to generate search query.")
         except Exception as e:
+            logger.exception("prompt command failed")
             await ctx.respond(f"Error: {e}")
-            print(f"Error: {e}")
 
     # ── Simulate (prefix keeps flexible *args; slash has explicit params) ──────
 

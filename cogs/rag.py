@@ -1,8 +1,11 @@
 import discord
 from discord.ext import commands, bridge
+import logging
 import aiohttp
 import asyncio
 import io
+
+logger = logging.getLogger("bot.rag")
 from ragfunc.memory import async_store_document, async_count, async_clear_documents, async_clear_all
 from chatbotfunc.utils import fetch_message_history, split_message
 from AIfunc.responses import generate_gpt_response
@@ -69,7 +72,7 @@ class RAGCog(commands.Cog):
             n = await async_store_document(ctx.channel.id, content, source=source)
             await ctx.respond(f"Stored **{n}** chunk{'s' if n != 1 else ''} from `{source}` in memory.")
         except Exception as e:
-            print(f"[rag] learn_slash error: {e}")
+            logger.exception("learn failed")
             await ctx.respond(f"Error storing document: {e}")
 
     async def _resolve_learn_input(self, attachments, text, slash_file):
@@ -95,7 +98,7 @@ class RAGCog(commands.Cog):
             stats = await async_count(ctx.channel.id)
             await ctx.respond(f"**Memory — #{ctx.channel.name}**\nTotal stored chunks: `{stats['total']}`")
         except Exception as e:
-            print(f"[rag] memory error: {e}")
+            logger.exception("memory stats failed")
             await ctx.respond(f"Error reading memory stats: {e}")
 
     # ── !cleardocs / /cleardocs ───────────────────────────────────────────────
@@ -107,7 +110,7 @@ class RAGCog(commands.Cog):
             n = await async_clear_documents(ctx.channel.id)
             await ctx.respond(f"Removed **{n}** document chunk{'s' if n != 1 else ''} from memory.")
         except Exception as e:
-            print(f"[rag] cleardocs error: {e}")
+            logger.exception("cleardocs failed")
             await ctx.respond(f"Error clearing documents: {e}")
 
     # ── !summarize / /summarize ───────────────────────────────────────────────
@@ -130,7 +133,7 @@ class RAGCog(commands.Cog):
             for chunk in chunks[1:]:
                 await ctx.channel.send(chunk)
         except Exception as e:
-            print(f"[rag] summarize error: {e}")
+            logger.exception("summarize failed")
             await ctx.respond(f"Error generating summary: {e}")
 
     # ── !clearall (prefix only — too destructive for accidental slash) ────────
@@ -143,7 +146,7 @@ class RAGCog(commands.Cog):
             await async_clear_all(ctx.channel.id)
             await ctx.send("All memory cleared for this channel.")
         except Exception as e:
-            print(f"[rag] clearall error: {e}")
+            logger.exception("clearall failed")
             await ctx.send(f"Error clearing memory: {e}")
 
 

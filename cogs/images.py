@@ -1,14 +1,17 @@
 import discord
 from discord.ext import commands, bridge
+import logging
 import io
 from io import BytesIO
 import aiohttp
 import json
+import openai
 from PIL import Image
-from colorama import Fore
 from AIfunc.responses import generate_image, transform_image, analyze_image
 from funfunc.image_search import main as search_image
 from chatbotfunc.utils import format_error_message, encode_discord_image
+
+logger = logging.getLogger("bot.images")
 
 
 class ImagesCog(commands.Cog):
@@ -34,9 +37,9 @@ class ImagesCog(commands.Cog):
         except openai.BadRequestError as e:
             await ctx.respond(f"Request rejected: {e}")
         except Exception as e:
+            logger.exception("generate failed")
             msg = format_error_message(e)
             await ctx.respond(msg)
-            print(Fore.RED + msg + Fore.RESET)
 
     async def _transform_impl(self, ctx, instructions: str, image_bytes: bytes):
         try:
@@ -53,9 +56,9 @@ class ImagesCog(commands.Cog):
                 file=discord.File(fp=BytesIO(result), filename="transformed_image.png"),
             )
         except Exception as e:
+            logger.exception("transform failed")
             msg = format_error_message(e)
             await ctx.respond(f"An error occurred during the transformation: {msg}")
-            print(Fore.RED + msg + Fore.RESET)
 
     async def _image_impl(self, ctx, query: str):
         await ctx.defer()
@@ -83,8 +86,8 @@ class ImagesCog(commands.Cog):
             else:
                 await ctx.respond("Sorry, no images found.")
         except Exception as e:
+            logger.exception("image search failed")
             await ctx.respond(f"Error fetching image: {e}")
-            print(f"Error: {e}")
 
     # ── Prefix + slash bridge commands ────────────────────────────────────────
 

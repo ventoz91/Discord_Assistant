@@ -1,9 +1,12 @@
 import chromadb
 import asyncio
+import logging
 import time
 import os
 import re
 from dotenv import load_dotenv
+
+logger = logging.getLogger("bot.memory")
 
 load_dotenv()
 
@@ -121,7 +124,7 @@ class ChannelMemory:
                 metadatas=[{"type": "message", "role": role, "ts": int(time.time()), "expires_at": expires_at}],
             )
         except Exception as e:
-            print(f"[memory] store_message error: {e}")
+            logger.exception("store_message failed")
 
     def store_document(self, text: str, source: str = "upload"):
         """Chunk and store a document. Returns number of chunks stored."""
@@ -136,7 +139,7 @@ class ChannelMemory:
             try:
                 self._col.upsert(ids=ids, documents=docs, metadatas=metas)
             except Exception as e:
-                print(f"[memory] store_document error: {e}")
+                logger.exception("store_document failed")
         return len(chunks)
 
     # ── Reading ───────────────────────────────────────────────────────────────
@@ -165,7 +168,7 @@ class ChannelMemory:
                 and (meta.get("expires_at", 0) == 0 or meta.get("expires_at", 0) > now)
             ]
         except Exception as e:
-            print(f"[memory] retrieve error: {e}")
+            logger.exception("retrieve failed")
             return []
 
     def retrieve_messages(self, query: str, k: int = RETRIEVAL_K) -> list[str]:
@@ -186,7 +189,7 @@ class ChannelMemory:
                 self._col.delete(ids=results["ids"])
                 return len(results["ids"])
         except Exception as e:
-            print(f"[memory] clear_documents error: {e}")
+            logger.exception("clear_documents failed")
         return 0
 
     def clear_all(self):
@@ -198,7 +201,7 @@ class ChannelMemory:
                 metadata={"hnsw:space": "cosine"},
             )
         except Exception as e:
-            print(f"[memory] clear_all error: {e}")
+            logger.exception("clear_all failed")
 
 
 # ── Async helpers (run DB ops in thread so they don't block the event loop) ──

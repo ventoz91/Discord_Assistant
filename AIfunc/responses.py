@@ -1,6 +1,7 @@
 from chatbotfunc.utils import async_chat_completion
 from openai import OpenAI
 import openai
+import logging
 import os
 import io
 import json
@@ -10,6 +11,8 @@ import base64
 from dotenv import load_dotenv
 from PIL import Image
 load_dotenv()
+
+logger = logging.getLogger("bot.responses")
 
 # Initialize the OpenAI client with your API key
 openai_api_key = os.environ["OPENAI_API_KEY"]
@@ -106,9 +109,8 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
 
         return (content, tool_calls) if tools else content
     except Exception as e:
-        error_msg = f"Error generating response: {e}"
-        print(error_msg)
-        err = f"An error occurred while generating a response. Details: {error_msg}"
+        logger.exception("generate_gpt_response failed")
+        err = f"An error occurred while generating a response. Details: {e}"
         return (err, []) if tools else err
     
 
@@ -129,10 +131,7 @@ async def analyze_image(base64_image, instructions, message_history, chatgpt_beh
         async with session.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload) as response:
             response_json = await response.json()
             if 'usage' in response_json:
-                total_tokens = response_json['usage']['total_tokens']
-                print(f"Total Tokens for image description: {total_tokens}")
-            else:
-                print("Token usage information not available for image description.")
+                logger.debug("analyze_image tokens: %d", response_json['usage']['total_tokens'])
             return response_json
 
 async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality="medium", n=1):
@@ -163,7 +162,7 @@ async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality=
         return msg
 
     except Exception as e:
-        print(f"Image generation error: {e}")
+        logger.exception("generate_image failed")
         return None
 
 
@@ -198,5 +197,5 @@ async def transform_image(image_bytes: bytes, instructions: str, size="1024x1024
         return msg
 
     except Exception as e:
-        print(f"Image transform error: {e}")
+        logger.exception("transform_image failed")
         return None
