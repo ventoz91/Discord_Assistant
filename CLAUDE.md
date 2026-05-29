@@ -93,7 +93,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 
 ### Cog Layout
 
-- **`cogs/chat.py`** — `ChatCog`: `on_message` enqueues into a per-channel `asyncio.Queue`, `_process_queue` drains it sequentially via `_handle_message` (prevents concurrent processing races per channel). `on_reaction_add` (gated by `REACTION_RESPONSES` env var), `on_ready`, `on_command_error`. `_should_respond()`: always responds to @mentions, responds in `CHANNEL_IDS` channels unless directed at a specific human.
+- **`cogs/chat.py`** — `ChatCog`: `on_message` enqueues into a per-channel `asyncio.Queue`, `_process_queue` drains it sequentially via `_handle_message` (prevents concurrent processing races per channel). `on_reaction_add` (gated by `REACTION_RESPONSES` env var), `on_ready`, `on_command_error`. `_should_respond()`: always responds to @mentions, responds in `CHANNEL_IDS` channels unless directed at a specific human. Defines `_GENERATE_TOOL` and `_TRANSFORM_TOOL` OpenAI tool schemas; the transform tool is only included in the tools list when the channel has a prior image in `bot.channel_image_state`.
 - **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
 - **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe) and `snake` commands.
@@ -110,7 +110,7 @@ Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and 
 
 ### Support Modules
 
-- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]`), `analyze_image()`, `generate_image()`, `transform_image()`.
+- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]` and `tools: list` for OpenAI tool calling — returns `(content, tool_calls)` tuple when tools are provided, plain string otherwise), `analyze_image()`, `generate_image()`, `transform_image()`.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`.
 - **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()`.
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` / `set_active()` persist the selected personality via `ACTIVE_PERSONALITY=`. `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` manage per-channel pins stored in `data/channel_personalities.json`.
@@ -126,7 +126,7 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 
 - `bot.chatgpt_behaviour` — Active personality descriptor string; changed by `!change` / `/personality change`
 - `bot.active_games` — `dict[channel_id, bool]` prevents message handling during in-channel games
-- `bot.last_generated_image_bytes` — Raw PNG bytes of the last `!generate` result; used by `!transform last`
+- `bot.channel_image_state` — `dict[channel_id, {"last_generated": bytes|None, "last_transformed": bytes|None}]` tracks the most recent generated and transformed image per channel. `last_transformed` is preferred over `last_generated` when picking an image to transform (enables chaining). Set by `!generate`, `!transform`, and the AI image tools in `chat.py`.
 - `bot.personality_manager` — `PersonalityManager` instance
 
 ### Message Flow
@@ -144,8 +144,10 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 10. Stores user message in ChromaDB via `async_store_message` (filtered by `_should_store()` — junk skipped)
 11. Retrieves RAG context: top-5 document chunks + top-`RAG_MESSAGE_CONTEXT` message chunks, both filtered by `DISTANCE_THRESHOLD`
 12. Fetches direct Discord history via `fetch_message_history`, appends user message
-13. Calls `generate_gpt_response()` with RAG context injected into system prompt
-14. Sends first chunk, captures Discord message ID, stores bot response in ChromaDB with that ID (deduplication)
+13. Builds tools list: `_GENERATE_TOOL` always included; `_TRANSFORM_TOOL` added only if `bot.channel_image_state` has a prior image for this channel
+14. Calls `generate_gpt_response()` with RAG context and tools; receives `(content, tool_calls)` tuple
+15. For each tool call: `generate_image` → calls `generate_image()`, posts as `discord.File`, stores `last_generated` in channel state; `transform_image` → calls `transform_image()` on `last_transformed or last_generated`, posts result, stores `last_transformed`
+16. If the model also returned text content, sends it as normal chunked message and stores in ChromaDB
 
 ### Bot Commands Reference
 
@@ -153,7 +155,7 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 |---|---|---|
 | `!generate <prompt>` | `/generate` | Generate an image via gpt-image-1 |
 | `!transform <instructions>` | `/transform` | Transform an image |
-| `!transform last <instructions>` | `/transform use_last:True` | Transform the last generated image |
+| `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel (last transformed, or last generated if no transform yet) |
 | `!image <query>` | `/image` | Search and display an image with AI description |
 
 | `!change [n]` | — | Switch to personality #n or random |

@@ -6,8 +6,8 @@ A personal Discord bot with GPT chat, image generation and transformation, game 
 
 - **GPT chat** — responds in allowed channels using a configurable personality/system prompt; always responds to direct @mentions; per-channel message queue prevents concurrent processing races
 - **RAG memory** — per-channel persistent memory backed by ChromaDB; stores chat history and uploaded documents, retrieves semantically relevant context on every response
-- **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`
-- **Image transformation** — native image editing via `!transform` / `/transform`
+- **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`, or naturally in conversation ("make me a picture of a crab")
+- **Image transformation** — native image editing via `!transform` / `/transform`, or naturally in conversation ("make it blue"); per-channel image state enables chaining transforms
 - **Image analysis** — describe attached images in chat, or search and describe via `!image` / `/image`
 - **Personality system** — short character descriptors injected into a shared base system prompt; switchable at runtime, pinnable per-channel, persists across restarts
 - **Conversation simulation** — two bot personalities argue a topic via `!simulate` / `/simulate`
@@ -189,8 +189,9 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 |---|---|---|
 | `!generate <prompt>` | `/generate <prompt>` | Generate an image with gpt-image-1 |
 | `!transform <instructions>` | `/transform` | Transform an attached image |
-| `!transform last <instructions>` | `/transform use_last:True` | Transform the last generated image |
+| `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel |
 | `!image <query>` | `/image <query>` | Search Google Images and describe the result |
+| *(natural language)* | — | Ask the bot to generate or transform an image in conversation |
 
 
 ### Games
@@ -224,7 +225,7 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 ```
 main.py                     — bot init, shared state, load_extension calls, bot.run()
 cogs/
-  chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler + RAG integration)
+  chat.py                   — on_message, on_reaction_add, on_ready (GPT chat handler, RAG integration, AI image tools)
   images.py                 — generate, transform, image, variation commands
   personality.py            — prefix + slash personality commands
   games.py                  — game (Tic-Tac-Toe), snake commands
@@ -233,7 +234,8 @@ cogs/
   rag.py                    — learn, memory, cleardocs, clearall commands
 AIfunc/
   responses.py              — BASE_SYSTEM_PROMPT constant; OpenAI wrappers:
-                              generate_gpt_response (accepts rag_context),
+                              generate_gpt_response (accepts rag_context + tools;
+                              returns (content, tool_calls) tuple when tools provided),
                               analyze_image, generate_image, transform_image
   simulate.py               — ConversationSimulator
 chatbotfunc/
@@ -302,7 +304,7 @@ Use `!pin [n]` / `/personality pin [n]` to lock a specific personality to a chan
 ## Known Limitations
 
 - **Valheim / Enshrouded commands** are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
-- **`!transform last`** requires at least one `!generate` call in the current session (bytes are not persisted across restarts).
+- **`!transform last` / AI transform** requires at least one `!generate` or `!transform` call in the current session — image bytes are stored per-channel in memory and not persisted across restarts.
 - **Scanned PDFs** — `!learn` can only extract text from text-based PDFs. Image-only scans won't work.
 - **Re-uploading files** — if a file was stored before the chunk size was increased to 3000 chars, re-upload it with `!learn` to get better chunking.
 - **RAG distance threshold** — `DISTANCE_THRESHOLD` (default `0.8`) is set in `.env`. If relevant context is being dropped, raise it; if too much noise is coming through, lower it. Range is 0–2.
