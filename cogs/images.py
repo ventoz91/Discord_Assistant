@@ -35,6 +35,7 @@ class ImagesCog(commands.Cog):
                 file=discord.File(fp=BytesIO(image_bytes), filename="image.png"),
             )
         except openai.BadRequestError as e:
+            logger.warning("image request rejected by OpenAI: %s", e)
             await ctx.respond(f"Request rejected: {e}")
         except Exception as e:
             logger.exception("generate failed")

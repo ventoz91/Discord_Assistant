@@ -159,6 +159,7 @@ async def generate_image(prompt, model="gpt-image-1", size="1024x1024", quality=
             msg = detail.get('error', {}).get('message', str(e))
         except Exception:
             msg = str(e)
+        logger.warning("image request rejected by OpenAI: %s", msg)
         return msg
 
     except Exception as e:
@@ -194,6 +195,7 @@ async def transform_image(image_bytes: bytes, instructions: str, size="1024x1024
             msg = detail.get('error', {}).get('message', str(e))
         except Exception:
             msg = str(e)
+        logger.warning("transform request rejected by OpenAI: %s", msg)
         return msg
 
     except Exception as e:
