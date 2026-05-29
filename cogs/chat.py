@@ -6,7 +6,7 @@ import io
 import json
 import asyncio
 import aiohttp
-from chatbotfunc.utils import fetch_message_history, async_chat_completion, split_message, format_error_message, encode_discord_image
+from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image
 
 logger = logging.getLogger("bot.chat")
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
@@ -73,8 +73,6 @@ class ChatCog(commands.Cog):
     def _should_respond(self, message) -> bool:
         if message.author == self.bot.user:
             return False
-        if "Generated Image" in message.content:
-            return False
         if self.bot.user in message.mentions:
             return True
         channel_ids_str = os.getenv("CHANNEL_IDS", "")
@@ -119,28 +117,33 @@ class ChatCog(commands.Cog):
             return
         if reaction.message.author != self.bot.user or user == self.bot.user:
             return
-        messages = await fetch_message_history(reaction.message.channel, self.bot)
-        last_bot_message = next((m for m in messages if m['role'] == 'assistant'), None)
-        if not last_bot_message:
+
+        channel = reaction.message.channel
+        channel_behaviour = (
+            self.bot.personality_manager.get_channel_personality(channel.id)
+            or self.bot.chatgpt_behaviour
+        )
+
+        message_history = await fetch_message_history(channel, self.bot)
+        if not any(m['role'] == 'assistant' for m in message_history):
             return
+
         emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
-        prompt = f"{user.display_name} has reacted to your last message with: {emoji_name}. What is your response? Stay in character"
-        messages.append({"role": "user", "content": prompt})
+        prompt = f"{user.display_name} reacted to your last message with {emoji_name}. Respond in character."
+
+        rag_docs = await async_retrieve(channel.id, emoji_name, k=5, doc_type="document")
+        rag_msgs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
+        rag_context = rag_docs + rag_msgs or None
+
+        message_history.append({"role": "user", "content": prompt})
         try:
-            max_tokens = int(os.getenv("MAX_TOKENS", 500))
-            response = await async_chat_completion(
-                model=os.getenv("MODEL_CHAT"),
-                messages=messages,
-                temperature=1.5,
-                top_p=0.9,
-                max_completion_tokens=max_tokens,
-            )
-            if response.choices:
-                await reaction.message.channel.send(response.choices[0].message.content)
+            response = await generate_gpt_response(message_history, channel_behaviour, rag_context=rag_context)
+            if response:
+                await channel.send(response)
         except Exception as e:
             logger.exception("on_reaction_add failed")
             msg = format_error_message(e)
-            await reaction.message.channel.send(msg)
+            await channel.send(msg)
 
     @commands.Cog.listener()
     async def on_message(self, message):

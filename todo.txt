@@ -28,12 +28,8 @@ Consistent error handling — centralised logger (chatbotfunc/logger.py), Rotati
 --- TODO ---
 
 # Code health
-remove redundant "Generated Image" guard in chat.py _should_respond — dead code; the
-  message.author == self.bot.user check three lines above already handles it
 remove !prompt / /prompt command — made obsolete by Tavily web search; it returns a Google URL
   when the bot can just answer the question directly; funfunc/prompt.py can be deleted too
-bring on_reaction_add in line with main chat path — currently skips RAG context and tools,
-  uses raw async_chat_completion; reactions get a noticeably weaker response than normal chat
 
 # Features
 scheduled messages and reminders — !remind <time> <message>, daily automated posts; store in JSON,
