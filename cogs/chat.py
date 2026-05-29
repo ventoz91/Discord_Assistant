@@ -1,14 +1,46 @@
 import discord
 from discord.ext import commands
 import os
+import io
+import json
 import asyncio
 import aiohttp
 from colorama import Fore
 from chatbotfunc.utils import fetch_message_history, async_chat_completion, split_message, format_error_message, encode_discord_image
-from AIfunc.responses import analyze_image, generate_gpt_response
+from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
 
 RATE_LIMIT = 0.5
+
+_GENERATE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "generate_image",
+        "description": "Generate and post an image to the chat. Use this when the user explicitly asks for a picture, image, drawing, or photo of something.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Detailed image generation prompt describing what to create"}
+            },
+            "required": ["prompt"]
+        }
+    }
+}
+
+_TRANSFORM_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "transform_image",
+        "description": "Transform or modify the most recent image in this channel. Use this when the user asks to change, edit, modify, or transform the current or last image.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "instructions": {"type": "string", "description": "Instructions describing how to transform the image"}
+            },
+            "required": ["instructions"]
+        }
+    }
+}
 
 
 class ChatCog(commands.Cog):
@@ -177,16 +209,48 @@ class ChatCog(commands.Cog):
 
                 message_history = await fetch_message_history(message.channel, self.bot)
                 message_history.append({"role": "user", "content": message.content})
-                gpt_response = await generate_gpt_response(
-                    message_history, channel_behaviour, rag_context=rag_context
+
+                ch_state = self.bot.channel_image_state.get(message.channel.id, {})
+                tools = [_GENERATE_TOOL]
+                if ch_state.get("last_transformed") or ch_state.get("last_generated"):
+                    tools.append(_TRANSFORM_TOOL)
+
+                gpt_response, tool_calls = await generate_gpt_response(
+                    message_history, channel_behaviour, rag_context=rag_context, tools=tools
                 )
-                chunks = split_message(gpt_response)
-                sent = await message.channel.send(chunks[0])
-                await asyncio.sleep(RATE_LIMIT)
-                await async_store_message(message.channel.id, "assistant", gpt_response, sent.id)
-                for chunk in chunks[1:]:
-                    await message.channel.send(chunk)
+
+                for tc in tool_calls:
+                    if tc.function.name == "generate_image":
+                        prompt = json.loads(tc.function.arguments).get("prompt", "")
+                        image_result = await generate_image(prompt)
+                        if isinstance(image_result, bytes):
+                            self.bot.channel_image_state.setdefault(message.channel.id, {})["last_generated"] = image_result
+                            file = discord.File(io.BytesIO(image_result), filename="generated.png")
+                            img_msg = await message.channel.send("Generated Image", file=file)
+                            await async_store_message(message.channel.id, "assistant", f"[generated image for prompt: {prompt}]", img_msg.id)
+                        elif isinstance(image_result, str):
+                            await message.channel.send(image_result)
+
+                    elif tc.function.name == "transform_image":
+                        instructions = json.loads(tc.function.arguments).get("instructions", "")
+                        last_image = ch_state.get("last_transformed") or ch_state.get("last_generated")
+                        image_result = await transform_image(last_image, instructions)
+                        if isinstance(image_result, bytes):
+                            self.bot.channel_image_state.setdefault(message.channel.id, {})["last_transformed"] = image_result
+                            file = discord.File(io.BytesIO(image_result), filename="transformed.png")
+                            img_msg = await message.channel.send("Transformed Image", file=file)
+                            await async_store_message(message.channel.id, "assistant", f"[transformed image: {instructions}]", img_msg.id)
+                        elif isinstance(image_result, str):
+                            await message.channel.send(image_result)
+
+                if gpt_response:
+                    chunks = split_message(gpt_response)
+                    sent = await message.channel.send(chunks[0])
                     await asyncio.sleep(RATE_LIMIT)
+                    await async_store_message(message.channel.id, "assistant", gpt_response, sent.id)
+                    for chunk in chunks[1:]:
+                        await message.channel.send(chunk)
+                        await asyncio.sleep(RATE_LIMIT)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

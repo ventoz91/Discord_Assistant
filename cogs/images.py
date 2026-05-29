@@ -26,7 +26,7 @@ class ImagesCog(commands.Cog):
                 return
             if not image_bytes:
                 raise ValueError("Failed to generate an image.")
-            self.bot.last_generated_image_bytes = image_bytes
+            self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_generated"] = image_bytes
             await ctx.respond(
                 f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}",
                 file=discord.File(fp=BytesIO(image_bytes), filename="image.png"),
@@ -47,6 +47,7 @@ class ImagesCog(commands.Cog):
             if not result:
                 await ctx.respond("Failed to transform the image.")
                 return
+            self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_transformed"] = result
             await ctx.respond(
                 f"Transformed Image:\nInstructions: {instructions}",
                 file=discord.File(fp=BytesIO(result), filename="transformed_image.png"),
@@ -102,10 +103,11 @@ class ImagesCog(commands.Cog):
         use_last = instructions.lower().startswith("last")
         if use_last:
             instructions = instructions[4:].strip()
-            if not self.bot.last_generated_image_bytes:
-                await ctx.send("No previously generated image found. Use `!generate` first.")
+            state = self.bot.channel_image_state.get(ctx.channel.id, {})
+            image_bytes = state.get("last_transformed") or state.get("last_generated")
+            if not image_bytes:
+                await ctx.send("No image in memory for this channel. Use `!generate` first.")
                 return
-            image_bytes = self.bot.last_generated_image_bytes
         elif ctx.message.attachments:
             async with aiohttp.ClientSession() as session:
                 async with session.get(ctx.message.attachments[0].url) as resp:
@@ -125,10 +127,11 @@ class ImagesCog(commands.Cog):
         use_last: discord.Option(bool, "Use the most recently generated image", required=False) = False):
         await ctx.defer()
         if use_last or attachment is None:
-            if not self.bot.last_generated_image_bytes:
-                await ctx.respond("No previously generated image found. Use `/generate` first.")
+            state = self.bot.channel_image_state.get(ctx.channel.id, {})
+            image_bytes = state.get("last_transformed") or state.get("last_generated")
+            if not image_bytes:
+                await ctx.respond("No image in memory for this channel. Use `/generate` first.")
                 return
-            image_bytes = self.bot.last_generated_image_bytes
         else:
             image_bytes = await attachment.read()
         await self._transform_impl(ctx, instructions, image_bytes)

@@ -31,7 +31,7 @@ Personality: {personality}"""
 
 
 #Genereate gpt response with chat history and current behaviour
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=1.5, top_p=0.9, rag_context=None, tools=None):
     # Load the max tokens from environment if not provided
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS"))
 
@@ -40,23 +40,31 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         system_content += "\n\nRELEVANT CONTEXT FROM MEMORY:\n" + "\n---\n".join(rag_context)
     messages = [{"role": "system", "content": system_content}] + message_history
 
-    try:
-        response = await async_chat_completion(
-            model=os.getenv("MODEL_CHAT"),
-            messages=messages,
-            temperature=temperature,
-            top_p=top_p,
-            max_completion_tokens=max_tokens
-        )
+    kwargs = dict(
+        model=os.getenv("MODEL_CHAT"),
+        messages=messages,
+        temperature=temperature,
+        top_p=top_p,
+        max_completion_tokens=max_tokens,
+    )
+    if tools:
+        kwargs["tools"] = tools
 
-        if response.choices:
-            return response.choices[0].message.content
-        else:
-            return "Sorry, I couldn't generate a response."
+    try:
+        response = await async_chat_completion(**kwargs)
+
+        if not response.choices:
+            return ("Sorry, I couldn't generate a response.", []) if tools else "Sorry, I couldn't generate a response."
+
+        choice = response.choices[0].message
+        content = choice.content or ""
+        tool_calls = choice.tool_calls or []
+        return (content, tool_calls) if tools else content
     except Exception as e:
         error_msg = f"Error generating response: {e}"
         print(error_msg)
-        return f"An error occurred while generating a response. Details: {error_msg}"
+        err = f"An error occurred while generating a response. Details: {error_msg}"
+        return (err, []) if tools else err
     
 
 #Anylyzes images with history and personality context
