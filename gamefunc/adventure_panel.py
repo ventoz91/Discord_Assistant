@@ -1,5 +1,13 @@
 import discord
-from gamefunc.adventure import AdventureGame
+from gamefunc.adventure import AdventureGame, DIRECTION_VECTORS
+
+_DIR_LABELS = {
+    "nw": "↖", "n": "⬆", "ne": "↗",
+    "w":  "⬅",            "e":  "➡",
+    "sw": "↙", "s": "⬇", "se": "↘",
+}
+
+LEGEND = "@ you  ! torch  / weapon  [ armor  * key  ; relic  ^ crown"
 
 
 class AdventureView(discord.ui.View):
@@ -13,67 +21,60 @@ class AdventureView(discord.ui.View):
 
     def _rebuild(self):
         self.clear_items()
-        exits = self.game.room.exits
-        has_items = bool(self.game.room.items)
-        won = self.game.won
+        game = self.game
+        won = game.won
 
-        # Row 0: [·] [North] [·]
-        self.add_item(_Placeholder(row=0))
-        self.add_item(_DirButton("north", exits, row=0, lock=won))
-        self.add_item(_Placeholder(row=0))
+        def can_move(d: str) -> bool:
+            if won:
+                return False
+            dx, dy = DIRECTION_VECTORS[d]
+            return game.is_passable(game.px + dx, game.py + dy)
 
-        # Row 1: [West] [Look] [East]
-        self.add_item(_DirButton("west", exits, row=1, lock=won))
-        self.add_item(_ActionButton("👁 Look", "look", row=1, lock=won))
-        self.add_item(_DirButton("east", exits, row=1, lock=won))
+        # Row 0: NW  N  NE
+        for d in ("nw", "n", "ne"):
+            self.add_item(_DirButton(d, can_move(d), row=0))
 
-        # Row 2: [·] [South] [·]
-        self.add_item(_Placeholder(row=2))
-        self.add_item(_DirButton("south", exits, row=2, lock=won))
-        self.add_item(_Placeholder(row=2))
+        # Row 1: W  [·]  E
+        self.add_item(_DirButton("w", can_move("w"), row=1))
+        self.add_item(_Placeholder(row=1))
+        self.add_item(_DirButton("e", can_move("e"), row=1))
 
-        # Row 3: [Pick Up] [Inventory] [Quit]
-        self.add_item(_PickUpButton(row=3, enabled=has_items and not won))
-        self.add_item(_ActionButton("🎒 Inventory", "inventory", row=3, lock=False))
+        # Row 2: SW  S  SE
+        for d in ("sw", "s", "se"):
+            self.add_item(_DirButton(d, can_move(d), row=2))
+
+        # Row 3: Pick Up  Inventory  Look  Quit
+        has_item = bool(game._item_at(game.px, game.py)) and not won
+        self.add_item(_PickUpButton(row=3, enabled=has_item))
+        self.add_item(_ActionButton("🎒 Inv", "inventory", row=3))
+        self.add_item(_ActionButton("🔍 Look", "look", row=3))
         self.add_item(_QuitButton(row=3))
 
     def build_embed(self) -> discord.Embed:
         game = self.game
-        room = game.room
-
-        if game.won:
-            color = discord.Color.gold()
-            title = f"👑  {room.name}"
-        else:
-            color = discord.Color.dark_gray()
-            title = f"🗺️  {room.name}"
+        color = discord.Color.gold() if game.won else discord.Color.dark_gray()
+        title = "👑  Victory!" if game.won else "⚔  Dungeon"
 
         embed = discord.Embed(title=title, color=color)
-        embed.description = f"```\n{room.art}\n```"
-        embed.add_field(name="", value=room.description, inline=False)
+        embed.description = f"```\n{game.render_viewport()}\n```"
 
-        exits_str = "  ".join(f"`{d.upper()}`" for d in room.exits) or "*none*"
-        embed.add_field(name="🚪 Exits", value=exits_str, inline=True)
+        inv_str = "  ".join(f"`{i}`" for i in game.inventory) or "*empty*"
+        embed.add_field(name="🎒 Inventory", value=inv_str, inline=True)
 
-        ground_str = "\n".join(f"· {i}" for i in room.items) or "*nothing*"
-        embed.add_field(name="📦 On Ground", value=ground_str, inline=True)
-
-        inv_str = "\n".join(f"· {i}" for i in game.inventory) or "*empty*"
-        embed.add_field(name="🎒 Carrying", value=inv_str, inline=True)
+        item_here = game._item_at(game.px, game.py)
+        ground_str = f"`{item_here.symbol}` {item_here.name}" if item_here else "*nothing*"
+        embed.add_field(name="📦 At Feet", value=ground_str, inline=True)
 
         embed.add_field(name="📜 Log", value=f"*{game.log}*", inline=False)
 
         if game.won:
             embed.add_field(
-                name="✨ Victory!",
-                value=(
-                    "You raise the Golden Crown above your head. "
-                    "The throne room echoes with silence — and then, somehow, applause. "
-                    "Your adventure is complete."
-                ),
+                name="",
+                value="The dungeon falls silent as you claim the crown. Your legend is written.",
                 inline=False,
             )
 
+        embed.set_footer(text=f"({game.px},{game.py})  ·  {game.steps} steps  ·  {LEGEND}")
         return embed
 
     async def _update(self, interaction: discord.Interaction):
@@ -95,7 +96,7 @@ class AdventureView(discord.ui.View):
             for child in self.children:
                 child.disabled = True
             try:
-                await self.message.edit(content="*Adventure session timed out.*", view=self)
+                await self.message.edit(content="*Session timed out.*", view=self)
             except Exception:
                 pass
 
@@ -104,18 +105,10 @@ def _check_author(interaction: discord.Interaction, game: AdventureGame) -> bool
     return interaction.user.id == game.user_id
 
 
-class _Placeholder(discord.ui.Button):
-    def __init__(self, row: int):
-        super().__init__(label="·", style=discord.ButtonStyle.secondary, disabled=True, row=row)
-
-
 class _DirButton(discord.ui.Button):
-    _LABELS = {"north": "⬆", "south": "⬇", "west": "⬅", "east": "➡"}
-
-    def __init__(self, direction: str, exits: dict, row: int, lock: bool):
-        available = direction in exits and not lock
+    def __init__(self, direction: str, available: bool, row: int):
         super().__init__(
-            label=self._LABELS[direction],
+            label=_DIR_LABELS[direction],
             style=discord.ButtonStyle.primary if available else discord.ButtonStyle.secondary,
             disabled=not available,
             row=row,
@@ -127,30 +120,15 @@ class _DirButton(discord.ui.Button):
         if not _check_author(interaction, view.game):
             await interaction.response.send_message("This isn't your adventure!", ephemeral=True)
             return
-        view.game.log = view.game.move(self.direction)
+        result = view.game.move(self.direction)
+        if result:
+            view.game.log = result
         await view._update(interaction)
 
 
-class _ActionButton(discord.ui.Button):
-    def __init__(self, label: str, action: str, row: int, lock: bool):
-        super().__init__(
-            label=label,
-            style=discord.ButtonStyle.secondary,
-            disabled=lock,
-            row=row,
-        )
-        self.action = action
-
-    async def callback(self, interaction: discord.Interaction):
-        view: AdventureView = self.view
-        if not _check_author(interaction, view.game):
-            await interaction.response.send_message("This isn't your adventure!", ephemeral=True)
-            return
-        if self.action == "look":
-            view.game.log = view.game.look()
-        elif self.action == "inventory":
-            view.game.log = view.game.show_inventory()
-        await view._update(interaction)
+class _Placeholder(discord.ui.Button):
+    def __init__(self, row: int):
+        super().__init__(label="·", style=discord.ButtonStyle.secondary, disabled=True, row=row)
 
 
 class _PickUpButton(discord.ui.Button):
@@ -168,6 +146,23 @@ class _PickUpButton(discord.ui.Button):
             await interaction.response.send_message("This isn't your adventure!", ephemeral=True)
             return
         view.game.log = view.game.pick_up()
+        await view._update(interaction)
+
+
+class _ActionButton(discord.ui.Button):
+    def __init__(self, label: str, action: str, row: int):
+        super().__init__(label=label, style=discord.ButtonStyle.secondary, row=row)
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction):
+        view: AdventureView = self.view
+        if not _check_author(interaction, view.game):
+            await interaction.response.send_message("This isn't your adventure!", ephemeral=True)
+            return
+        if self.action == "inventory":
+            view.game.log = view.game.show_inventory()
+        elif self.action == "look":
+            view.game.log = view.game.look()
         await view._update(interaction)
 
 

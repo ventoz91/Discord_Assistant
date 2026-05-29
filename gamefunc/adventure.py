@@ -1,183 +1,145 @@
+import copy
 from dataclasses import dataclass, field
+
+MAP_W = 55
+MAP_H = 23
+VIEWPORT_W = 33
+VIEWPORT_H = 15
+WIN_ITEM = "Golden Crown"
+
+DIRECTION_VECTORS = {
+    "n":  ( 0, -1),
+    "s":  ( 0,  1),
+    "w":  (-1,  0),
+    "e":  ( 1,  0),
+    "nw": (-1, -1),
+    "ne": ( 1, -1),
+    "sw": (-1,  1),
+    "se": ( 1,  1),
+}
 
 
 @dataclass
-class Room:
-    id: str
+class Item:
+    x: int
+    y: int
+    symbol: str
     name: str
-    description: str
-    art: str
-    exits: dict   # {"north": room_id, ...}
-    items: list = field(default_factory=list)
 
 
-ROOMS: dict[str, "Room"] = {
-    "cell": Room(
-        id="cell",
-        name="Prison Cell",
-        description="Stone walls weep with moisture. The iron door hangs open — someone left in a hurry.",
-        art=(
-            "╔════════════════════╗\n"
-            "║ ||| ||| ||| ||| | ║\n"
-            "║                   ║\n"
-            "║   [ You ]         ║\n"
-            "║                   ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"north": "corridor"},
-        items=["Broken Shackle"],
-    ),
-    "corridor": Room(
-        id="corridor",
-        name="Dark Corridor",
-        description="A long passage of rough-cut stone. Torchlight flickers from somewhere ahead.",
-        art=(
-            "╔════════════════════╗\n"
-            "║  . . . . . . . .  ║\n"
-            "║                   ║\n"
-            "║     [ You ]       ║\n"
-            "║                   ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"south": "cell", "north": "guardroom", "east": "armory"},
-        items=["Torch"],
-    ),
-    "armory": Room(
-        id="armory",
-        name="Armory",
-        description="Weapon racks line the walls, mostly empty. A few useful things remain.",
-        art=(
-            "╔════════════════════╗\n"
-            "║ /\\ /\\ /\\ /\\ /\\  ║\n"
-            "║ || || || || ||    ║\n"
-            "║                   ║\n"
-            "║     [ You ]       ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"west": "corridor"},
-        items=["Old Sword", "Dented Shield"],
-    ),
-    "guardroom": Room(
-        id="guardroom",
-        name="Guard Room",
-        description="A table covered in empty mugs and a half-eaten meal. The guards have vanished.",
-        art=(
-            "╔════════════════════╗\n"
-            "║  _______________  ║\n"
-            "║ |     TABLE     | ║\n"
-            "║ |_______________| ║\n"
-            "║     [ You ]       ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"south": "corridor", "north": "hall"},
-        items=["Iron Key", "Mug of Ale"],
-    ),
-    "hall": Room(
-        id="hall",
-        name="Great Hall",
-        description="Vaulted ceilings disappear into shadow. A tattered banner hangs limp from the rafters.",
-        art=(
-            "╔════════════════════╗\n"
-            "║ |              |  ║\n"
-            "║ |   [ You ]    |  ║\n"
-            "║ |              |  ║\n"
-            "║ |              |  ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"south": "guardroom", "north": "throneroom", "east": "chapel", "west": "kitchen"},
-        items=[],
-    ),
-    "kitchen": Room(
-        id="kitchen",
-        name="Kitchen",
-        description="The hearth is still warm. Pots and pans hang everywhere. Someone fled mid-meal.",
-        art=(
-            "╔════════════════════╗\n"
-            "║ (o) (o) (o) (o)   ║\n"
-            "║  ~   ~   ~   ~    ║\n"
-            "║  ===============  ║\n"
-            "║     [ You ]       ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"east": "hall"},
-        items=["Bread Loaf", "Iron Ladle"],
-    ),
-    "chapel": Room(
-        id="chapel",
-        name="Chapel",
-        description="Rows of pews before a cracked stone altar. Candles still burn, dripping wax.",
-        art=(
-            "╔════════════════════╗\n"
-            "║        /\\         ║\n"
-            "║       /  \\        ║\n"
-            "║  ====ALTAR====    ║\n"
-            "║     [ You ]       ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"west": "hall"},
-        items=["Holy Symbol"],
-    ),
-    "throneroom": Room(
-        id="throneroom",
-        name="Throne Room",
-        description=(
-            "The seat of power stands before you. A golden crown rests upon the throne, "
-            "glittering in the torchlight. It has been waiting for someone."
-        ),
-        art=(
-            "╔════════════════════╗\n"
-            "║   /\\/\\  /\\/\\  /\\ ║\n"
-            "║  ( THRONE ROOM  ) ║\n"
-            "║   \\/\\/  \\/\\/  \\/ ║\n"
-            "║     [ You ]       ║\n"
-            "╚════════════════════╝"
-        ),
-        exits={"south": "hall"},
-        items=["Golden Crown"],
-    ),
-}
+def _build_map() -> list[list[str]]:
+    grid = [['#'] * MAP_W for _ in range(MAP_H)]
 
-WIN_ITEM = "Golden Crown"
-WIN_ROOM = "throneroom"
+    rooms = [
+        ( 1,  1, 10,  5),   # A — start
+        (15,  1, 35,  5),   # B
+        (40,  1, 53,  5),   # C
+        ( 1, 10, 25, 16),   # D
+        (29, 10, 53, 16),   # E
+        (10, 19, 44, 21),   # F — end
+    ]
+    corridors = [
+        (11,  3, 14,  3),   # A → B
+        (36,  3, 39,  3),   # B → C
+        ( 5,  6,  5,  9),   # A → D
+        (20,  6, 20,  9),   # B → D
+        (45,  6, 45,  9),   # C → E
+        (26, 13, 28, 13),   # D → E
+        (12, 17, 12, 18),   # D → F
+        (40, 17, 40, 18),   # E → F
+    ]
+
+    for x1, y1, x2, y2 in rooms + corridors:
+        for y in range(y1, y2 + 1):
+            for x in range(x1, x2 + 1):
+                grid[y][x] = '.'
+
+    return grid
+
+
+_BASE_MAP: list[list[str]] = _build_map()
+
+_INITIAL_ITEMS: list[Item] = [
+    Item( 3,  3, '!', 'Torch'),
+    Item(25,  2, '/', 'Old Sword'),
+    Item(48,  3, '*', 'Iron Key'),
+    Item(10, 13, '[', 'Dented Shield'),
+    Item(42, 12, ';', 'Holy Symbol'),
+    Item(27, 20, '^', 'Golden Crown'),
+]
 
 
 class AdventureGame:
     def __init__(self, user_id: int):
         self.user_id = user_id
-        self.current_room_id = "cell"
+        self.px = 5
+        self.py = 3
         self.inventory: list[str] = []
-        self.visited: set[str] = {"cell"}
-        self.log = "You awaken in a cold, damp cell. The door is open. Which way?"
+        self.items: list[Item] = copy.deepcopy(_INITIAL_ITEMS)
+        self.map: list[list[str]] = [row[:] for row in _BASE_MAP]
+        self.log = "You descend into the dungeon. The Golden Crown awaits somewhere in the depths."
         self.won = False
+        self.steps = 0
 
-    @property
-    def room(self) -> Room:
-        return ROOMS[self.current_room_id]
+    def is_passable(self, x: int, y: int) -> bool:
+        return 0 <= y < MAP_H and 0 <= x < MAP_W and self.map[y][x] == '.'
 
     def move(self, direction: str) -> str:
-        if direction not in self.room.exits:
-            return f"There is no exit to the {direction}."
-        self.current_room_id = self.room.exits[direction]
-        self.visited.add(self.current_room_id)
-        return f"You head {direction} into the {self.room.name}."
+        dx, dy = DIRECTION_VECTORS[direction]
+        nx, ny = self.px + dx, self.py + dy
+        if not self.is_passable(nx, ny):
+            return "Your way is blocked."
+        self.px, self.py = nx, ny
+        self.steps += 1
+        item = self._item_at(nx, ny)
+        if item:
+            return f"You see {item.name} [{item.symbol}] here."
+        return ""
 
     def pick_up(self) -> str:
-        if not self.room.items:
+        item = self._item_at(self.px, self.py)
+        if not item:
             return "There is nothing here to pick up."
-        item = self.room.items.pop(0)
-        self.inventory.append(item)
-        if item == WIN_ITEM:
+        self.items.remove(item)
+        self.inventory.append(item.name)
+        if item.name == WIN_ITEM:
             self.won = True
-            return f"You pick up the {item}. The weight of it feels like destiny."
-        return f"You pick up the {item}."
+            return "You raise the Golden Crown. The dungeon shudders. Victory is yours."
+        return f"You pick up the {item.name}."
 
     def look(self) -> str:
-        room = self.room
-        exits = ", ".join(room.exits.keys()) or "none"
-        items = ", ".join(room.items) if room.items else "nothing of note"
-        return f"{room.description} Exits lead {exits}. You see: {items}."
+        item = self._item_at(self.px, self.py)
+        nearby = [
+            i.name for i in self.items
+            if abs(i.x - self.px) <= 3 and abs(i.y - self.py) <= 3 and i is not item
+        ]
+        parts = []
+        if item:
+            parts.append(f"At your feet: {item.name} [{item.symbol}].")
+        if nearby:
+            parts.append(f"Nearby: {', '.join(nearby)}.")
+        parts.append(f"Steps taken: {self.steps}.")
+        return " ".join(parts)
 
     def show_inventory(self) -> str:
         if not self.inventory:
             return "Your pack is empty."
-        return "You are carrying: " + ", ".join(self.inventory) + "."
+        return "Carrying: " + ", ".join(self.inventory) + "."
+
+    def _item_at(self, x: int, y: int) -> Item | None:
+        return next((i for i in self.items if i.x == x and i.y == y), None)
+
+    def render_viewport(self) -> str:
+        vx = max(0, min(self.px - VIEWPORT_W // 2, MAP_W - VIEWPORT_W))
+        vy = max(0, min(self.py - VIEWPORT_H // 2, MAP_H - VIEWPORT_H))
+        lines = []
+        for row in range(vy, vy + VIEWPORT_H):
+            line = []
+            for col in range(vx, vx + VIEWPORT_W):
+                if row == self.py and col == self.px:
+                    line.append('@')
+                else:
+                    item = self._item_at(col, row)
+                    line.append(item.symbol if item else self.map[row][col])
+            lines.append(''.join(line))
+        return '\n'.join(lines)
