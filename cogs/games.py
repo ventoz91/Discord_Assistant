@@ -3,6 +3,8 @@ from discord.ext import commands, bridge
 import asyncio
 import gamefunc.tictactoe as tictactoe
 from gamefunc.snake import SnakeGame
+from gamefunc.adventure import AdventureGame
+from gamefunc.adventure_panel import AdventureView
 
 
 class GamesCog(commands.Cog):
@@ -63,6 +65,19 @@ class GamesCog(commands.Cog):
 
         await ctx.channel.send("Game Over!")
         self.bot.active_games[ctx.channel.id] = False
+
+
+    @bridge.bridge_command(description="Start an ASCII adventure game")
+    async def adventure(self, ctx):
+        if self.bot.active_games.get(ctx.channel.id, False):
+            await ctx.respond("A game is already in progress in this channel.")
+            return
+        self.bot.active_games[ctx.channel.id] = True
+        game = AdventureGame(user_id=ctx.author.id)
+        view = AdventureView(game, self.bot, ctx.channel.id)
+        await ctx.defer()
+        msg = await ctx.respond(embed=view.build_embed(), view=view)
+        view.message = await msg.original_response() if hasattr(msg, "original_response") else msg
 
 
 def setup(bot):
