@@ -37,6 +37,15 @@ upgrade Snake to panel game — replace the current send-new-message-per-tick ap
   embed that edits in place (like adventure/minecraft panel); use discord.ui.View with W/A/S/D
   buttons instead of waiting on message input; eliminates channel spam
 
+# Features — Dream Tier
+full voice channel presence — /voice join: bot joins VC, records via discord.sinks, transcribes
+  with OpenAI Whisper API, generates in-character RAG-aware response, speaks back via OpenAI TTS;
+  transcripts stored in RAG; full two-way voice companion, not just transcription
+autonomous agent mode — /agent <goal>: Ralph takes a multi-step goal and runs an agentic loop
+  (plan → search → execute → reflect → post progress); uses existing tool-calling infrastructure
+  (Tavily, image gen, RAG); can handle complex tasks like research, planning, summarisation
+  without user hand-holding; think AutoGPT but in Discord and in character
+
 # Features
 /adventure level 2 — health system, enemies per room, combat buttons (Attack/Flee),
   loot drops, death/game-over state; builds on existing AdventureGame/AdventureView
