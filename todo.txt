@@ -1,0 +1,57 @@
+--- DONE ---
+Finish refactoring for easier continued development (cog architecture)
+Fix inconsistency when bot is mentioned (sometimes replies but sometimes ignores)
+Add error for non-existent ! commands
+Improve history handling (RAG memory with ChromaDB)
+Improve simulate (full conversation state, live output, judge verdict, turns param)
+Remove !variation (broken — variations endpoint doesn't support gpt-image-1)
+RAG quality filter before storage — skip low-value user messages before embedding
+RAG retrieval reranking — drop candidates above cosine distance threshold
+RAG deduplication — assistant responses use Discord message IDs as ChromaDB doc IDs
+RAG memory expiry — messages tagged with expires_at, filtered at retrieval; docs never expire
+Store image analysis results in RAG so the bot can reference past images
+Add !summarize command — TL;DR of recent conversation via history + RAG
+Per-channel personality pinning — !pin / !unpin / /personality pin|unpin
+Allow different personalities per channel (achieved via pinning)
+Combine .env and personalities.env into one file
+Add handling for multiple messages at once (per-channel asyncio queue)
+Reaction handler toggle — REACTION_RESPONSES env var instead of removing the feature
+Improve system prompt — energy matching, no filler openers, RAG context handling, uncertainty
+Natural language image generation — generate_image exposed as OpenAI tool; bot generates images from conversation ("make me a picture of a crab")
+Natural language image transform — transform_image exposed as tool; conditionally offered only when channel has a prior image; chains correctly (transforms the last transformed, not the original)
+Per-channel image state — replaced global last_generated_image_bytes with channel_image_state dict tracking last_generated + last_transformed per channel
+Real-time web search via tool calling — google_search tool (Tavily-backed) resolved internally in generate_gpt_response via auto_resolve; 2-API-call loop so model sees results before responding
+
+--- TODO ---
+scheduled messages and reminders — !remind <time> <message>, daily automated posts; store in JSON,
+  background asyncio task fires on startup and wakes to send
+in-Discord model switching — !model / /model command to swap bot.model_chat live; list available
+  local (Ollama) and cloud (OpenAI) models; store as shared bot state
+message threading — post long responses or generated images as Discord thread replies to keep
+  channels clean and group conversation naturally
+!tldr <url> — user pastes a URL, bot fetches and summarizes in character; thin layer on top of
+  existing Tavily/HTTP infra
+!poll "question" "opt1" "opt2" ... — bot posts embed with reaction buttons, tallies after set
+  time, announces winner in character; fits personality system naturally
+voice channel transcription — bot joins VC, records via discord.sinks, transcribes with Whisper,
+  stores transcript in RAG (complex but high value)
+allow multiple channels to contribute to the same RAG database
+add personality-specific memory (separate DB per personality, not just per channel)
+RAG periodic compression — scheduled job that clusters similar past messages and summarizes
+  them into a single high-value "distilled memory" entry; keeps DB lean as it grows (complex)
+scheduled messages and reminders — !remind <time> <message>, daily automated posts
+Ollama support for chat completions — swap OpenAI client base_url to localhost:11434;
+  Ollama is OpenAI-compatible so changes are minimal; keep OpenAI for image gen/analysis
+in-Discord model switching — !model / /model command to swap bot.model_chat live;
+  list available local (Ollama) and cloud (OpenAI) models; store as shared bot state
+per-channel model config — some channels use local model (cheap), others use cloud (quality)
+
+--- WAITING: SERVER MOVE ---
+Notes: server has 2x Xeon E5-2667 v2 (32 threads), ~100GB DDR3, GTX 1070 8GB passed through to VM — GPU passthrough already confirmed working
+install Ollama on server VM (use plain nvidia CUDA build, not ROCm — GTX 1070 is CUDA-only)
+set OLLAMA_HOST=0.0.0.0 on server so bot can reach it over the network
+point bot at server Ollama instance via OLLAMA_BASE_URL env var instead of localhost
+GTX 1070 caps on-GPU models at 7B Q4 (~4.7GB fits in 8GB VRAM) — Qwen2.5 7B or Llama 3.1 8B Q4 are the targets
+larger models (32B+) can run CPU-only using the 100GB RAM, expect ~4-8 tok/s
+keep OpenAI API for image generation and analysis (no local equivalent)
+consider running ChromaDB on the server too so RAG data persists there rather than locally
