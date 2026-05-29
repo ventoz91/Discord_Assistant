@@ -3,8 +3,6 @@ from discord.ext import commands, bridge
 import logging
 import os
 import asyncio
-
-logger = logging.getLogger("bot.fun")
 from io import BytesIO
 from funfunc.prompt import GPTSearchPrompt
 from funfunc.sandwich import make_random_sandwich
@@ -12,10 +10,118 @@ from AIfunc.simulate import ConversationSimulator
 from AIfunc.responses import generate_image
 from chatbotfunc.utils import split_message
 
+logger = logging.getLogger("bot.fun")
+
+# ── /commands help menu ───────────────────────────────────────────────────────
+
+_CATEGORIES: dict[str, tuple[discord.Color, list[tuple[str, str]]]] = {
+    "💬 Chat": (discord.Color.blurple(), [
+        ("`!change [n]` / `/personality change`",   "Switch to personality #n, or random"),
+        ("`!new <text>` / `/personality new`",       "Add a new personality descriptor"),
+        ("`!list` / `/personality list`",            "List all personalities"),
+        ("`!pin [n]` / `/personality pin`",          "Pin a personality to this channel"),
+        ("`!unpin` / `/personality unpin`",          "Remove the channel personality pin"),
+        ("`!simulate [p1] [p2] <topic>` / `/simulate`", "Simulate a debate between two personalities"),
+    ]),
+    "🧠 Memory": (discord.Color.purple(), [
+        ("`!learn [text]` / `/learn`",   "Store text or an attached file in memory"),
+        ("`!memory` / `/memory`",        "Show memory stats for this channel"),
+        ("`!summarize` / `/summarize`",  "TL;DR of recent conversation"),
+        ("`!cleardocs` / `/cleardocs`",  "Remove stored documents (keeps message history)"),
+        ("`!clearall`",                  "Wipe all memory for this channel (Manage Messages required)"),
+    ]),
+    "🖼️ Images": (discord.Color.green(), [
+        ("`!generate <prompt>` / `/generate`",            "Generate an image with AI"),
+        ("`!transform <instructions>` / `/transform`",    "Transform an attached image"),
+        ("`!transform last <instructions>`",              "Transform the most recent image in this channel"),
+        ("`!image <query>` / `/image`",                   "Search and describe an image"),
+        ("*(natural language)*",                          "Ask the bot to generate or transform in conversation"),
+    ]),
+    "🎮 Games": (discord.Color.orange(), [
+        ("`!game X|O` / `/game`",     "Play Tic-Tac-Toe"),
+        ("`!snake` / `/snake`",       "Play Snake"),
+        ("`!adventure` / `/adventure`", "ASCII dungeon (QUD-style, 8-directional movement)"),
+    ]),
+    "🖥️ Servers": (discord.Color.dark_gray(), [
+        ("`!minecraft` / `/minecraft`",                         "Open the Minecraft server panel"),
+        ("`!start_valheim` / `/valheim start`",                 "Start the Valheim server"),
+        ("`!stop_valheim` / `/valheim stop`",                   "Stop the Valheim server"),
+        ("`!valheim_status` / `/valheim status`",               "Check Valheim server status"),
+        ("`!start_enshrouded` / `/enshrouded start`",           "Start the Enshrouded server"),
+        ("`!stop_enshrouded` / `/enshrouded stop`",             "Stop the Enshrouded server"),
+    ]),
+    "🎲 Misc": (discord.Color.teal(), [
+        ("`!sandwich` / `/sandwich`", "Generate a random sandwich with an image"),
+        ("`!prompt <topic>` / `/prompt`", "Generate a Google search URL for a topic"),
+    ]),
+}
+
+
+def _home_embed() -> discord.Embed:
+    embed = discord.Embed(
+        title="📖 Commands",
+        description="Select a category to see available commands.",
+        color=discord.Color.blurple(),
+    )
+    for label, (_, entries) in _CATEGORIES.items():
+        embed.add_field(name=label, value=f"{len(entries)} commands", inline=True)
+    return embed
+
+
+def _category_embed(label: str) -> discord.Embed:
+    color, entries = _CATEGORIES[label]
+    embed = discord.Embed(title=f"{label} Commands", color=color)
+    for name, desc in entries:
+        embed.add_field(name=name, value=desc, inline=False)
+    return embed
+
+
+class _CommandsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=120)
+        self._show_home()
+
+    def _show_home(self):
+        self.clear_items()
+        for i, label in enumerate(_CATEGORIES):
+            self.add_item(_CategoryButton(label, row=i // 5))
+
+    def _show_category(self, label: str):
+        self.clear_items()
+        self.add_item(_BackButton())
+
+
+class _CategoryButton(discord.ui.Button):
+    def __init__(self, label: str, row: int):
+        super().__init__(label=label, style=discord.ButtonStyle.primary, row=row)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: _CommandsView = self.view
+        view._show_category(self.label)
+        await interaction.response.edit_message(embed=_category_embed(self.label), view=view)
+
+
+class _BackButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="← Back", style=discord.ButtonStyle.secondary, row=0)
+
+    async def callback(self, interaction: discord.Interaction):
+        view: _CommandsView = self.view
+        view._show_home()
+        await interaction.response.edit_message(embed=_home_embed(), view=view)
+
 
 class FunCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+
+    # ── Commands help menu ────────────────────────────────────────────────────
+
+    @bridge.bridge_command(name="commands", description="Browse all bot commands by category")
+    async def show_commands(self, ctx):
+        await ctx.defer()
+        view = _CommandsView()
+        await ctx.respond(embed=_home_embed(), view=view)
 
     # ── Prompt ────────────────────────────────────────────────────────────────
 
