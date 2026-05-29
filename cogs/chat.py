@@ -225,7 +225,7 @@ class ChatCog(commands.Cog):
                 rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
                 rag_context = rag_docs + rag_msgs or None
 
-                message_history = await fetch_message_history(message.channel, self.bot)
+                message_history = await fetch_message_history(message.channel, self.bot, exclude_message_id=message.id)
                 message_history.append({"role": "user", "content": message.content})
 
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})

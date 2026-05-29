@@ -122,10 +122,12 @@ async def encode_discord_image(image_url: str):
         return None
 
 
-async def fetch_message_history(channel, bot: commands.Bot):
+async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: int | None = None):
     history_length = int(os.getenv("HISTORYLENGTH", 30))
     message_history = []
     async for message in channel.history(limit=history_length * 2):
+        if message.id == exclude_message_id:
+            continue
         if len(message_history) < history_length and message.content:
             message_history.append({"role": "user" if message.author != bot.user else "assistant", "content": message.content})
     return message_history[::-1]
