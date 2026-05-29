@@ -231,6 +231,7 @@ All commands are available as both `!prefix` and `/slash`. The table below shows
 
 | Prefix | Slash | Description |
 |---|---|---|
+| `!commands` | `/commands` | Browse all bot commands by category (button menu) |
 | `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate a conversation between two personalities |
 | `!prompt <topic>` | `/prompt <topic>` | Generate a Google search URL for a topic via GPT |
 | `!sandwich` | `/sandwich` | Generate a random sandwich |
@@ -245,7 +246,7 @@ cogs/
   personality.py            — prefix + slash personality commands
   games.py                  — game (Tic-Tac-Toe), snake, adventure commands
   servers.py                — minecraft, valheim, enshrouded server commands
-  fun.py                    — prompt, simulate, sandwich commands
+  fun.py                    — commands (help menu), prompt, simulate, sandwich commands
   rag.py                    — learn, memory, cleardocs, clearall commands
 AIfunc/
   responses.py              — BASE_SYSTEM_PROMPT constant; OpenAI wrappers:

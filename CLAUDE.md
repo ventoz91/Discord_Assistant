@@ -100,7 +100,7 @@ Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualify
 - **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe), `snake`, and `adventure` commands.
 - **`cogs/servers.py`** — `ServersCog`: `minecraft` bridge command; Valheim prefix commands + `/valheim start|stop|status` slash group; Enshrouded prefix commands + `/enshrouded start|stop` slash group.
-- **`cogs/fun.py`** — `FunCog`: `prompt` and `sandwich` bridge commands; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
+- **`cogs/fun.py`** — `FunCog`: `commands` (category help menu with buttons), `prompt` and `sandwich` bridge commands; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
 - **`cogs/rag.py`** — `RAGCog`: `learn` (prefix + slash, supports file attachment), `memory`, `cleardocs`, and `summarize` (bridge commands), `clearall` (prefix only, requires Manage Messages).
 
 ### Slash vs Prefix
@@ -174,6 +174,7 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 | `!minecraft` | `/minecraft` | Open the Minecraft server management panel |
 | `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
+| `!commands` | `/commands` | Browse all bot commands by category (button menu) |
 | `!prompt <topic>` | `/prompt` | Generate a Google search URL for a topic |
 | `!sandwich` | `/sandwich` | Generate a random sandwich |
 | `!pin [n]` | `/personality pin [n]` | Pin personality #n to this channel |
