@@ -9,6 +9,7 @@ A personal Discord bot with GPT chat, image generation and transformation, game 
 - **Image generation** — gpt-image-1 image generation via `!generate` / `/generate`, or naturally in conversation ("make me a picture of a crab")
 - **Image transformation** — native image editing via `!transform` / `/transform`, or naturally in conversation ("make it blue"); per-channel image state enables chaining transforms
 - **Image analysis** — describe attached images in chat, or search and describe via `!image` / `/image`
+- **Web search** — bot looks up current information in conversation via tool calling (Tavily); incorporates live results into its in-character response
 - **Personality system** — short character descriptors injected into a shared base system prompt; switchable at runtime, pinnable per-channel, persists across restarts
 - **Conversation simulation** — two bot personalities argue a topic via `!simulate` / `/simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game` / `/game`) and Snake (`!snake` / `/snake`) playable in Discord
@@ -97,6 +98,15 @@ GOOGLE_API_KEY=your_google_api_key
 
 # Google Custom Search Engine ID — configure at programmablesearchengine.google.com
 GOOGLE_CSE_ID=your_cse_id
+
+
+# ─────────────────────────────────────────────
+# Web Search (Tavily)
+# ─────────────────────────────────────────────
+
+# Tavily API key — powers the AI web search tool (bot looks things up in conversation).
+# Free tier, no credit card — sign up at tavily.com. Leave blank to disable web search.
+TAVILY_API_KEY=tvly-your_tavily_key
 
 
 # ─────────────────────────────────────────────
@@ -252,7 +262,8 @@ ragfunc/
   memory.py                 — ChannelMemory (ChromaDB wrapper); store_message, store_document,
                               retrieve, clear methods; async helpers
 funfunc/
-  image_search.py           — Google Custom Search API wrapper
+  image_search.py           — Google Custom Search API wrapper (image search)
+  web_search.py             — Tavily web search wrapper (AI google_search tool)
   prompt.py                 — GPTSearchPrompt
   sandwich.py               — random sandwich generator
 data/

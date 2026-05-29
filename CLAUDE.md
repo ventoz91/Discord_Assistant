@@ -34,8 +34,9 @@ A single **`.env`** file at the project root holds all configuration:
 - `MINECRAFT_MODDED_RCON_HOST` — RCON host (default: localhost)
 - `MINECRAFT_MODDED_RCON_PORT` — RCON port (default: 25575)
 - `MINECRAFT_MODDED_RCON_PASSWORD` — RCON password
-- `GOOGLE_API_KEY` — Google Custom Search API key
-- `GOOGLE_CSE_ID` — Google Custom Search Engine ID
+- `GOOGLE_API_KEY` — Google Custom Search API key (used by `!image` image search)
+- `GOOGLE_CSE_ID` — Google Custom Search Engine ID (used by `!image` image search)
+- `TAVILY_API_KEY` — Tavily API key for the AI web search tool (`google_search` tool in `chat.py`). Get one free at tavily.com.
 - `VALHEIM_SERVER_NAME` — Valheim server display name
 - `VALHEIM_WORLD_NAME` — Valheim world name
 - `VALHEIM_PASSWORD` — Valheim server password
@@ -118,7 +119,7 @@ Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and 
 - **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (not the `mcrcon` library, which uses `signal.alarm()` and crashes outside the main thread).
 - **`gamefunc/minecraft_panel.py`** — `MinecraftPanel` Discord UI with live status embed and button enable/disable rules.
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only).
-- **`funfunc/`** — Image search, GPT search prompt, sandwich generator.
+- **`funfunc/`** — Image search (Google CSE), web search (`web_search.py`, Tavily-backed — used by the AI `google_search` tool), GPT search prompt, sandwich generator.
 
 ### Shared State
 
@@ -144,9 +145,9 @@ All mutable state lives on the bot object, accessible from any Cog via `self.bot
 10. Stores user message in ChromaDB via `async_store_message` (filtered by `_should_store()` — junk skipped)
 11. Retrieves RAG context: top-5 document chunks + top-`RAG_MESSAGE_CONTEXT` message chunks, both filtered by `DISTANCE_THRESHOLD`
 12. Fetches direct Discord history via `fetch_message_history`, appends user message
-13. Builds tools list: `_GENERATE_TOOL` always included; `_TRANSFORM_TOOL` added only if `bot.channel_image_state` has a prior image for this channel
-14. Calls `generate_gpt_response()` with RAG context and tools; receives `(content, tool_calls)` tuple
-15. For each tool call: `generate_image` → calls `generate_image()`, posts as `discord.File`, stores `last_generated` in channel state; `transform_image` → calls `transform_image()` on `last_transformed or last_generated`, posts result, stores `last_transformed`
+13. Builds tools list: `_GENERATE_TOOL` and `_SEARCH_TOOL` always included; `_TRANSFORM_TOOL` added only if `bot.channel_image_state` has a prior image for this channel
+14. Calls `generate_gpt_response()` with RAG context, tools, and `auto_resolve={"google_search": _execute_search}`; receives `(content, tool_calls)` tuple. The `google_search` tool is resolved *inside* `generate_gpt_response` (Tavily call + a second API call so the model sees results); only image tool calls are returned to the caller
+15. For each returned tool call: `generate_image` → calls `generate_image()`, posts as `discord.File`, stores `last_generated` in channel state; `transform_image` → calls `transform_image()` on `last_transformed or last_generated`, posts result, stores `last_transformed`
 16. If the model also returned text content, sends it as normal chunked message and stores in ChromaDB
 
 ### Bot Commands Reference

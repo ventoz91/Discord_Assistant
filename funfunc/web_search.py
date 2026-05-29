@@ -1,29 +1,46 @@
-import asyncio
 import os
-from googleapiclient.discovery import build
+import aiohttp
+
+TAVILY_URL = "https://api.tavily.com/search"
 
 
 async def web_search(query: str, num: int = 5) -> str:
-    api_key = os.getenv("GOOGLE_API_KEY", "")
-    cse_id = os.getenv("GOOGLE_CSE_ID", "")
-    if not api_key or not cse_id:
-        return "Web search is not configured (missing GOOGLE_API_KEY or GOOGLE_CSE_ID)."
+    api_key = os.getenv("TAVILY_API_KEY", "")
+    if not api_key:
+        return "Web search is not configured (missing TAVILY_API_KEY)."
+
+    payload = {
+        "query": query,
+        "max_results": num,
+        "include_answer": True,
+        "search_depth": "basic",
+    }
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
+    }
+
     try:
-        def _search():
-            service = build("customsearch", "v1", developerKey=api_key)
-            return service.cse().list(q=query, cx=cse_id, num=num).execute()
-
-        res = await asyncio.to_thread(_search)
-        items = res.get("items", [])
-        if not items:
-            return "No results found."
-
-        parts = []
-        for i, item in enumerate(items, 1):
-            title = item.get("title", "")
-            snippet = item.get("snippet", "").replace("\n", " ")
-            link = item.get("link", "")
-            parts.append(f"Result {i}: {title}\nURL: {link}\nSnippet: {snippet}")
-        return "\n\n".join(parts)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(TAVILY_URL, json=payload, headers=headers) as resp:
+                if resp.status != 200:
+                    detail = await resp.text()
+                    print(f"Search error detail: HTTP {resp.status} {detail}")
+                    return f"Search error: HTTP {resp.status}"
+                data = await resp.json()
     except Exception as e:
+        print(f"Search error: {e}")
         return f"Search error: {e}"
+
+    parts = []
+    answer = data.get("answer")
+    if answer:
+        parts.append(f"Quick answer: {answer}")
+
+    for i, item in enumerate(data.get("results", []), 1):
+        title = item.get("title", "")
+        content = (item.get("content", "") or "").replace("\n", " ")
+        url = item.get("url", "")
+        parts.append(f"Result {i}: {title}\nURL: {url}\nSnippet: {content}")
+
+    return "\n\n".join(parts) if parts else "No results found."
