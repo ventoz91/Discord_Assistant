@@ -34,6 +34,20 @@ A single **`.env`** file at the project root holds all configuration:
 - `ANALYZE_MAX_TOKENS` — Token cap for image analysis responses (default: 500). Raise if descriptions are getting cut off.
 - `REACTION_RESPONSES` — `true` / `false` — enable or disable emoji reaction responses (default: `true`)
 - `LOG_LEVEL` — Python logging level written to `data/bot.log` (default: `WARNING`). Set to `INFO` or `DEBUG` for more verbose file logging. Console always shows INFO+.
+- `USER_PROFILE_EXTRACTION` — `true` / `false` — enable persistent per-user fact extraction (default: `true`). Profiles stored in `data/user_profiles.json` (gitignored).
+- `USER_PROFILE_MAX_FACTS` — Max facts stored per user (default: 20). Oldest facts are dropped when the cap is hit.
+- `USER_PROFILE_INJECT_MAX` — Max facts injected into the system prompt per call (default: 10). Most recently learned facts are preferred.
+- `USER_PROFILE_MODEL` — Model used for fact extraction (default: `MODEL_CHAT`). Can use a cheaper/faster model since extraction is a simple structured task.
+- `USER_PROFILE_EXTRACT_TOKENS` — Max tokens for the extraction response (default: 200). Raise if facts are being cut off.
+- `USER_PROFILE_MSG_CHARS` — Max chars of user/bot message fed to the extraction prompt (default: 500).
+- `SUMMARY_ENABLED` — `true` / `false` — enable automatic conversation summarization (default: `true`).
+- `SUMMARY_INTERVAL_HOURS` — How often the summarizer scans all channels (default: 24). Scan does nothing if conditions aren't met.
+- `SUMMARY_MIN_NEW_MESSAGES` — Minimum expiring messages required to trigger summarization (default: 10). Below this, skip unless forced.
+- `SUMMARY_FORCE_AFTER_DAYS` — Force summarization after this many days without one, even if under the message minimum (default: 5). Prevents messages expiring without being captured.
+- `SUMMARY_DAYS_BEFORE_EXPIRY` — Summarize messages this many days before their TTL expires (default: 5). Gives a buffer before they vanish.
+- `SUMMARY_MODEL` — Model used for summarization (default: `MODEL_CHAT`).
+- `SUMMARY_MAX_TOKENS` — Max tokens in the summary output (default: 500).
+- `SUMMARY_MAX_INPUT_CHARS` — Max chars of chat history fed to the summarizer (default: 12000). Caps cost on very active channels.
 - `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
 - `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)
 - `MINECRAFT_VANILLA_RCON_PORT` — RCON port (default: 25575)

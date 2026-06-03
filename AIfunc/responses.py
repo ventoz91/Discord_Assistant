@@ -29,13 +29,15 @@ UNCERTAINTY: If you don't know something, say so in character rather than fabric
 Personality: {personality}"""
 
 
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None, user_context=None):
     # auto_resolve: dict[tool_name, async callable(args_dict) -> str]
     # Tools listed here are executed internally; only remaining tool calls are returned to the caller.
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS", "500"))
     temperature = temperature if temperature is not None else float(os.getenv("TEMPERATURE", "1.5"))
 
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
+    if user_context:
+        system_content += f"\n\nUSER PROFILE:\n{user_context}"
     if rag_context:
         system_content += "\n\nRELEVANT CONTEXT FROM MEMORY:\n" + "\n---\n".join(rag_context)
     messages = [{"role": "system", "content": system_content}] + message_history
@@ -109,8 +111,10 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         return (err, []) if tools else err
     
 
-async def analyze_image(base64_image: str, instructions: str, message_history: list, chatgpt_behaviour: str) -> str:
+async def analyze_image(base64_image: str, instructions: str, message_history: list, chatgpt_behaviour: str, user_context: str = None) -> str:
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
+    if user_context:
+        system_content += f"\n\nUSER PROFILE:\n{user_context}"
     messages = [{"role": "system", "content": system_content}] + message_history
     messages.append({
         "role": "user",

@@ -12,6 +12,8 @@ logger = logging.getLogger("bot.chat")
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
 from funfunc.web_search import web_search
+from chatbotfunc.profiles import get_user_context, extract_and_update
+from chatbotfunc.summarizer import summarizer_loop
 
 RATE_LIMIT = 0.5
 
@@ -152,6 +154,7 @@ class ChatCog(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         logger.info("Logged in as %s | personality: %s", self.bot.user.name, self.bot.chatgpt_behaviour)
+        asyncio.create_task(summarizer_loop(os.getenv("MODEL_CHAT", "")))
 
     def _enqueue(self, channel_id: int, coro_fn):
         """Push a zero-arg async callable onto the per-channel queue and ensure a worker is running."""
@@ -202,6 +205,7 @@ class ChatCog(commands.Cog):
         rag_context = rag_docs + rag_msgs or None
 
         message_history.append({"role": "user", "content": prompt})
+        user_ctx = await asyncio.to_thread(get_user_context, user.id, user.display_name)
         ch_state = self.bot.channel_image_state.get(channel.id, {})
         tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
         if ch_state.get("last_transformed") or ch_state.get("last_generated"):
@@ -210,6 +214,7 @@ class ChatCog(commands.Cog):
         try:
             gpt_response, tool_calls = await generate_gpt_response(
                 message_history, channel_behaviour, rag_context=rag_context, tools=tools,
+                user_context=user_ctx,
                 auto_resolve={
                     "google_search": _execute_search,
                     "suggest_activity": _make_suggest_executor(channel.id),
@@ -328,6 +333,10 @@ class ChatCog(commands.Cog):
 
                 message_history.append({"role": "user", "content": message.content})
 
+                user_ctx = await asyncio.to_thread(
+                    get_user_context, message.author.id, message.author.display_name
+                )
+
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})
                 tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
                 if ch_state.get("last_transformed") or ch_state.get("last_generated"):
@@ -335,6 +344,7 @@ class ChatCog(commands.Cog):
 
                 gpt_response, tool_calls = await generate_gpt_response(
                     message_history, channel_behaviour, rag_context=rag_context, tools=tools,
+                    user_context=user_ctx,
                     auto_resolve={
                         "google_search": _execute_search,
                         "suggest_activity": _make_suggest_executor(message.channel.id),
@@ -374,6 +384,10 @@ class ChatCog(commands.Cog):
                     for chunk in chunks[1:]:
                         await message.channel.send(chunk)
                         await asyncio.sleep(RATE_LIMIT)
+                    asyncio.create_task(extract_and_update(
+                        message.author.id, message.author.display_name,
+                        message.content, gpt_response, os.getenv("MODEL_CHAT", "")
+                    ))
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

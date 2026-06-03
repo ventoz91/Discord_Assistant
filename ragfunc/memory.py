@@ -258,6 +258,45 @@ class ChannelMemory:
         except Exception as e:
             logger.exception("clear_all failed")
 
+    def get_expiring(self, before_ts: int) -> tuple[list[str], list[str]]:
+        """Return (ids, docs) of message-type entries stored before before_ts."""
+        try:
+            results = self._col.get(
+                where={"$and": [{"type": "message"}, {"ts": {"$lt": int(before_ts)}}]},
+                include=["documents"],
+            )
+            return results.get("ids", []), results.get("documents", [])
+        except Exception:
+            logger.exception("get_expiring failed")
+            return [], []
+
+    def delete_by_ids(self, ids: list[str]):
+        """Delete ChromaDB entries by ID."""
+        if not ids:
+            return
+        try:
+            self._col.delete(ids=ids)
+        except Exception:
+            logger.exception("delete_by_ids failed")
+
+
+def list_channel_ids() -> list[int]:
+    """Return all channel IDs that have a ChromaDB collection."""
+    try:
+        cols = _get_client().list_collections()
+        ids = []
+        for col in cols:
+            name = col.name if hasattr(col, "name") else str(col)
+            if name.startswith("ch-"):
+                try:
+                    ids.append(int(name[3:]))
+                except ValueError:
+                    pass
+        return ids
+    except Exception:
+        logger.exception("list_channel_ids failed")
+        return []
+
 
 # ── Async helpers (run DB ops in thread so they don't block the event loop) ──
 
