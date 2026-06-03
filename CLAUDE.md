@@ -5,203 +5,206 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Running the Bot
 
 ```bash
-# Activate the virtual environment first
 source .venv/bin/activate
-
-# Run the Discord bot
 python main.py
 ```
 
 ## Environment Configuration
 
-A single **`.env`** file at the project root holds all configuration:
+All configuration lives in **`.env`** at the project root. All values are read at call time (not module load), so changes take effect on the next request without restarting.
 
+**Core**
 - `DISCORD_TOKEN` — Discord bot token
 - `OPENAI_API_KEY` — OpenAI API key
-- `MODEL_CHAT` — OpenAI model (e.g. `gpt-5.4`)
+- `MODEL_CHAT` — OpenAI model for chat completions (e.g. `gpt-4o`)
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
-- `HISTORYLENGTH` — Number of recent messages to fetch directly from Discord (default: 30)
-- `RAG_MESSAGE_CONTEXT` — Number of semantically relevant past messages to retrieve from ChromaDB per response (default: 50)
-- `RAG_DOC_CONTEXT` — Number of document chunks retrieved from ChromaDB per response (default: 5). Separate from `RAG_MESSAGE_CONTEXT` — controls how much `!learn` content is surfaced.
-- `MESSAGE_TTL_DAYS` — Days before a stored chat message is excluded from retrieval (default: 30). Documents never expire.
-- `DISTANCE_THRESHOLD` — Cosine distance cutoff for RAG retrieval (default: 0.8). Results above this are dropped.
-- `RAG_DECAY_HALFLIFE_DAYS` — Recency decay half-life for message retrieval (default: 14). A message this many days old must be twice as similar to survive the distance threshold. Set to 0 to disable. Documents are never decayed.
-- `MAX_CONTEXT_TOKENS` — If set, trims RAG context (messages first, then docs) before each LLM call to stay under this estimated token budget. Unset by default (no cap). Estimate is chars÷4, so give yourself headroom.
 - `MAX_TOKENS` — Max completion tokens for responses (default: 500)
-- `TEMPERATURE` — Response creativity, 0.0–2.0 (default: 1.5). Higher = more creative/unpredictable; lower = more focused. Read at call time in `generate_gpt_response`.
-- `IMAGE_SIZE` — Image generation/transform dimensions: `1024x1024` / `1536x1024` / `1024x1536` (default: `1024x1024`).
-- `IMAGE_QUALITY` — Image generation/transform quality: `low` / `medium` / `high` (default: `medium`). Higher costs more per image.
-- `ANALYZE_MAX_TOKENS` — Token cap for image analysis responses (default: 500). Raise if descriptions are getting cut off.
-- `REACTION_RESPONSES` — `true` / `false` — enable or disable emoji reaction responses (default: `true`)
-- `LOG_LEVEL` — Python logging level written to `data/bot.log` (default: `WARNING`). Set to `INFO` or `DEBUG` for more verbose file logging. Console always shows INFO+.
-- `USER_PROFILE_EXTRACTION` — `true` / `false` — enable persistent per-user fact extraction (default: `true`). Profiles stored in `data/user_profiles.json` (gitignored).
-- `USER_PROFILE_MAX_FACTS` — Max facts stored per user (default: 20). Oldest facts are dropped when the cap is hit.
-- `USER_PROFILE_INJECT_MAX` — Max facts injected into the system prompt per call (default: 10). Most recently learned facts are preferred.
-- `USER_PROFILE_MODEL` — Model used for fact extraction (default: `MODEL_CHAT`). Can use a cheaper/faster model since extraction is a simple structured task.
-- `USER_PROFILE_EXTRACT_TOKENS` — Max tokens for the extraction response (default: 200). Raise if facts are being cut off.
-- `USER_PROFILE_MSG_CHARS` — Max chars of user/bot message fed to the extraction prompt (default: 500).
-- `SUMMARY_ENABLED` — `true` / `false` — enable automatic conversation summarization (default: `true`).
-- `SUMMARY_INTERVAL_HOURS` — How often the summarizer scans all channels (default: 24). Scan does nothing if conditions aren't met.
-- `SUMMARY_MIN_NEW_MESSAGES` — Minimum expiring messages required to trigger summarization (default: 10). Below this, skip unless forced.
-- `SUMMARY_FORCE_AFTER_DAYS` — Force summarization after this many days without one, even if under the message minimum (default: 5). Prevents messages expiring without being captured.
-- `SUMMARY_DAYS_BEFORE_EXPIRY` — Summarize messages this many days before their TTL expires (default: 5). Gives a buffer before they vanish.
-- `SUMMARY_MODEL` — Model used for summarization (default: `MODEL_CHAT`).
-- `SUMMARY_MAX_TOKENS` — Max tokens in the summary output (default: 500).
-- `SUMMARY_MAX_INPUT_CHARS` — Max chars of chat history fed to the summarizer (default: 12000). Caps cost on very active channels.
-- `MINECRAFT_VANILLA_DIR` — Path to vanilla server directory
-- `MINECRAFT_VANILLA_RCON_HOST` — RCON host (default: localhost)
-- `MINECRAFT_VANILLA_RCON_PORT` — RCON port (default: 25575)
-- `MINECRAFT_VANILLA_RCON_PASSWORD` — RCON password
-- `MINECRAFT_MODDED_DIR` — Path to modded server directory
-- `MINECRAFT_MODDED_RCON_HOST` — RCON host (default: localhost)
-- `MINECRAFT_MODDED_RCON_PORT` — RCON port (default: 25575)
-- `MINECRAFT_MODDED_RCON_PASSWORD` — RCON password
-- `GOOGLE_API_KEY` — Google Custom Search API key (used by `!image` image search)
-- `GOOGLE_CSE_ID` — Google Custom Search Engine ID (used by `!image` image search)
-- `TAVILY_API_KEY` — Tavily API key for the AI web search tool (`google_search` tool in `chat.py`). Get one free at tavily.com.
-- `VALHEIM_SERVER_NAME` — Valheim server display name
-- `VALHEIM_WORLD_NAME` — Valheim world name
-- `VALHEIM_PASSWORD` — Valheim server password
-- `VALHEIM_PORT` — Valheim game port (default: 2456)
-- `VALHEIM_STEAM_DIR` — Path to Steam directory (Windows)
-- `ENSHROUDED_EXE` — Full path to enshrouded_server.exe (Windows)
-- `PERSONALITY=<descriptor>` — One line per personality (repeated key). Each is a short character descriptor injected into `BASE_SYSTEM_PROMPT`. Managed at runtime via `PersonalityManager`.
-- `ACTIVE_PERSONALITY=<descriptor>` — Written automatically by `PersonalityManager.set_active()` when a personality change is made. Read on startup to restore the last selected personality.
+- `TEMPERATURE` — Response creativity, 0.0–2.0 (default: 1.5)
+- `IMAGE_SIZE` — Image dimensions: `1024x1024` / `1536x1024` / `1024x1536` (default: `1024x1024`)
+- `IMAGE_QUALITY` — `low` / `medium` / `high` (default: `medium`)
+- `ANALYZE_MAX_TOKENS` — Token cap for image analysis (default: 500)
+- `REACTION_RESPONSES` — `true` / `false` — emoji reaction responses (default: `true`)
+- `LOG_LEVEL` — File log level: `DEBUG` / `INFO` / `WARNING` / `ERROR` (default: `WARNING`). Console always shows INFO+.
+
+**RAG Memory**
+- `HISTORYLENGTH` — Recent Discord messages fetched directly per response (default: 30)
+- `RAG_MESSAGE_CONTEXT` — Older messages retrieved from ChromaDB per response (default: 50). Restricted to entries older than the history window.
+- `RAG_DOC_CONTEXT` — Document chunks retrieved per response (default: 5)
+- `MESSAGE_TTL_DAYS` — Days before a chat message is excluded from retrieval (default: 30). Documents never expire.
+- `DISTANCE_THRESHOLD` — Cosine distance cutoff for retrieval (default: 0.8). Results above this are dropped.
+- `RAG_DECAY_HALFLIFE_DAYS` — Recency decay half-life for message scoring (default: 14). A message this many days old needs to be twice as similar to survive the threshold. Set to 0 to disable. Documents are never decayed.
+- `MAX_CONTEXT_TOKENS` — Optional hard token budget (chars÷4 estimate). Trims RAG messages from the tail, then docs, if exceeded. Unset by default.
+
+**User Profiles**
+- `USER_PROFILE_EXTRACTION` — `true` / `false` (default: `true`). Profiles stored in `data/user_profiles.json` (gitignored).
+- `USER_PROFILE_MAX_FACTS` — Max facts stored per user (default: 20). Oldest dropped at cap.
+- `USER_PROFILE_INJECT_MAX` — Max facts injected per call (default: 10). Most recent preferred.
+- `USER_PROFILE_MODEL` — Model for extraction (default: `MODEL_CHAT`). A cheaper model works fine.
+- `USER_PROFILE_EXTRACT_TOKENS` — Max tokens for the extraction response (default: 200).
+- `USER_PROFILE_MSG_CHARS` — Max chars of user/bot message fed to extraction (default: 500).
+
+**Auto-Summarization**
+- `SUMMARY_ENABLED` — `true` / `false` (default: `true`)
+- `SUMMARY_INTERVAL_HOURS` — Scan interval in hours (default: 24)
+- `SUMMARY_MIN_NEW_MESSAGES` — Minimum expiring messages to trigger summarization (default: 10). Below this, skip unless forced.
+- `SUMMARY_FORCE_AFTER_DAYS` — Force a summary after this many days without one, regardless of count (default: 5).
+- `SUMMARY_DAYS_BEFORE_EXPIRY` — Summarize messages this many days before their TTL (default: 5).
+- `SUMMARY_MODEL` — Model for summarization (default: `MODEL_CHAT`).
+- `SUMMARY_MAX_TOKENS` — Max tokens in summary output (default: 500).
+- `SUMMARY_MAX_INPUT_CHARS` — Max chars of chat fed to summarizer (default: 12000).
+
+**External Services**
+- `GOOGLE_API_KEY` — Google Custom Search API key (used by `!image`)
+- `GOOGLE_CSE_ID` — Google Custom Search Engine ID (used by `!image`)
+- `TAVILY_API_KEY` — Tavily API key for AI web search tool in `chat.py`
+
+**Game Servers**
+- `MINECRAFT_VANILLA_DIR` / `MINECRAFT_VANILLA_RCON_HOST` / `MINECRAFT_VANILLA_RCON_PORT` / `MINECRAFT_VANILLA_RCON_PASSWORD`
+- `MINECRAFT_MODDED_DIR` / `MINECRAFT_MODDED_RCON_HOST` / `MINECRAFT_MODDED_RCON_PORT` / `MINECRAFT_MODDED_RCON_PASSWORD`
+- `VALHEIM_SERVER_NAME` / `VALHEIM_WORLD_NAME` / `VALHEIM_PASSWORD` / `VALHEIM_PORT` / `VALHEIM_STEAM_DIR`
+- `ENSHROUDED_EXE`
+
+**Personalities (legacy — migration only)**
+- `PERSONALITY=<descriptor>` — Read once on first run to populate `data/personalities.json`. After migration, ignored.
+- `ACTIVE_PERSONALITY=<descriptor>` — Read once on first run. After migration, ignored.
 
 ## Personality System
 
-`BASE_SYSTEM_PROMPT` in `AIfunc/responses.py` is the shared system prompt used for all responses. It establishes:
-- Discord platform context (concise, conversational, match conversation energy)
-- No hollow filler openers ("Great question!", "Certainly!", etc.)
-- Code block formatting rules
-- RAG context handling: treat injected memory as natural background knowledge, do not announce it
-- History handling (focus on recent message, use history as supporting context only)
-- Stay-in-character directive — personality shapes voice/tone, not factual accuracy
-- Uncertainty: admit "I'm not sure" in character rather than fabricating
+`BASE_SYSTEM_PROMPT` in `AIfunc/responses.py` is the shared system prompt. It establishes: Discord platform context, no hollow filler openers, code block formatting, RAG context handling (treat as background knowledge, never announce), history handling (focus on recent, use history as context), stay-in-character, and uncertainty handling.
 
-`bot.chatgpt_behaviour` holds the active short personality descriptor (e.g. `"a sarcastic assistant named Soupy Dafoe obsessed with soup"`). It is injected into `BASE_SYSTEM_PROMPT` at call time in `generate_gpt_response` and `analyze_image`. Personality descriptors should be short — the base prompt handles all boilerplate rules.
+**Storage:** personalities live in `data/personalities.json` as a list of plain text descriptor strings plus an `"active"` key. `PersonalityManager` reads/writes only this file. On first run it auto-migrates `PERSONALITY=` and `ACTIVE_PERSONALITY=` entries from `.env` — existing personalities are preserved, `.env` entries are then ignored.
 
-On startup, `bot.chatgpt_behaviour` is set via `PersonalityManager.get_active()`, which reads `ACTIVE_PERSONALITY=` from `.env` (falls back to index 0 if not yet set). Any `!change` or `/personality change` call updates `bot.chatgpt_behaviour` and persists the selection to `.env` via `set_active()`.
+`bot.chatgpt_behaviour` holds the active descriptor. It is injected at `{personality}` in `BASE_SYSTEM_PROMPT` at call time in `generate_gpt_response` and `analyze_image`. Descriptors should be short — the base prompt handles all boilerplate.
 
-Per-channel pins override the global personality for a specific channel. `on_message` resolves `channel_behaviour = get_channel_personality(channel_id) or bot.chatgpt_behaviour` and passes that to `generate_gpt_response` and `analyze_image`. Pins are stored in `data/channel_personalities.json`.
+Per-channel pins override the global personality. `channel_behaviour = get_channel_personality(channel_id) or bot.chatgpt_behaviour` is resolved in `_handle_message` and `_handle_reaction`. Pins are cached in memory on `PersonalityManager` (invalidated on write) and persisted to `data/channel_personalities.json`.
 
 ## RAG Memory System
 
-Per-channel persistent memory backed by ChromaDB (`data/chroma/`). Every qualifying message the bot processes in an allowed channel is stored. Before each response, a semantic search retrieves relevant past messages and document chunks, which are injected into the system prompt as `RELEVANT CONTEXT FROM MEMORY`.
+Per-channel ChromaDB collections in `data/chroma/`. Singleton client (`_get_client()` in `memory.py`) shared across all calls.
 
-**Two document types in each collection:**
-- `message` — a stored Discord message (role + content); image analysis results stored here too as tagged entries
-- `document` — a chunk from an uploaded file or `!learn` text
+**Two document types per collection:**
+- `message` — stored Discord message (`role: content`); image analysis results stored as tagged entries
+- `document` — chunk from `!learn` text or uploaded file; never expires (`expires_at=0`)
 
-**Chunk size:** 3000 chars, 300-char overlap. Most small-to-medium files fit in one chunk.
+**Chunk size:** 3000 chars, 300-char overlap.
 
-**Quality filter:** user messages are checked before storage — messages under 8 chars, pure emoji/URL content, and known filler phrases (`lol`, `ok`, `yeah`, etc.) are discarded. Bot responses always stored.
+**Storage quality filter (`_should_store`):** user messages under 8 chars, pure emoji/URL content, and known filler phrases are discarded. Bot replies under 40 chars are also discarded. Longer bot responses always stored.
 
-**Retrieval:** candidates retrieved up to the configured k, then filtered by cosine distance threshold (`DISTANCE_THRESHOLD`, read from `.env`, default 0.8). Results above threshold are dropped. Tune via `.env` to adjust noise vs. recall.
+**Context threading:** `store_message()` accepts an optional `context_snippet` (≤200 chars of the preceding message), stored in metadata. Retrieved entries display it as `[re: ...]` prefix so the model understands what prompted each memory.
 
-**Message expiry:** chat messages tagged with `expires_at = now + MESSAGE_TTL_DAYS * 86400` at write time. Retrieval filters out expired entries in Python (safe for legacy entries without the field). Documents (`expires_at=0`) never expire.
+**Retrieval with decay:** `retrieve()` fetches `k×3` candidates, applies exponential recency decay to message-type entries (`effective_dist = dist / 2^(-age_days/halflife)`), filters by `DISTANCE_THRESHOLD`, re-sorts by adjusted distance, returns top k. Documents are never decayed.
 
-**Deduplication:** all stored entries use stable Discord message IDs as ChromaDB document IDs. ChromaDB upsert semantics ensure re-processing the same message never creates duplicates.
+**History/RAG deduplication:** RAG message retrieval uses `before_ts=history_cutoff_ts`, restricting results to entries older than the oldest message in the direct history window. The two context blocks carry disjoint sets.
 
-**Context per response:**
-- `HISTORYLENGTH` messages via `fetch_message_history` (direct Discord API)
-- `RAG_MESSAGE_CONTEXT` semantically relevant messages from ChromaDB (filtered by distance)
-- 5 relevant document chunks from ChromaDB (filtered by distance)
+**Message expiry:** tagged with `expires_at = now + MESSAGE_TTL_DAYS * 86400`. Retrieval skips expired entries. Auto-summarization condenses expiring messages into permanent documents before they lapse.
+
+**Auto-summarization:** `summarizer_loop` (started in `on_ready`) wakes every `SUMMARY_INTERVAL_HOURS`. For each channel it fetches messages older than `(TTL - SUMMARY_DAYS_BEFORE_EXPIRY)` days. Skip if count < `SUMMARY_MIN_NEW_MESSAGES` AND last summary < `SUMMARY_FORCE_AFTER_DAYS` days ago; otherwise summarize, store as permanent document, delete originals.
+
+**User profiles:** `get_user_context()` reads `data/user_profiles.json` and returns a formatted string of the user's most recent facts. Injected as `USER PROFILE:` section in the system prompt before RAG context. After each text exchange, `extract_and_update()` fires as a background `asyncio.create_task` to extract and merge new facts without blocking the response.
 
 **Supported file types:** `.txt .py .md .js .ts .jsx .tsx .json .csv .yaml .yml .html .css .sh .toml .ini .cfg .pdf`
 
 ## Architecture Overview
 
-`main.py` is the entry point (~30 lines). It initialises a `bridge.Bot`, sets shared state on the bot object, loads all Cogs via `bot.load_extension()`, and calls `bot.run()`. All commands and event handlers live in `cogs/`.
+`main.py` (~30 lines): initialises `bridge.Bot`, sets shared state, calls `bot.load_extension()` for all cogs, calls `bot.run()`.
 
 ### Cog Layout
 
-- **`cogs/chat.py`** — `ChatCog`: `on_message` enqueues into a per-channel `asyncio.Queue`, `_process_queue` drains it sequentially via `_handle_message` (prevents concurrent processing races per channel). `on_reaction_add` (gated by `REACTION_RESPONSES` env var), `on_ready`, `on_command_error`. `_should_respond()`: always responds to @mentions, responds in `CHANNEL_IDS` channels unless directed at a specific human. Defines `_GENERATE_TOOL` and `_TRANSFORM_TOOL` OpenAI tool schemas; the transform tool is only included in the tools list when the channel has a prior image in `bot.channel_image_state`.
-- **`cogs/images.py`** — `ImagesCog`: `generate`, `transform`, `image` commands. `transform` has a separate `@commands.command()` for prefix (reads `ctx.message.attachments`) and a `@discord.slash_command()` for slash (takes explicit `attachment` option).
-- **`cogs/personality.py`** — `PersonalityCog`: `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash command group (new/change/list/remove/pin/unpin).
-- **`cogs/games.py`** — `GamesCog`: `game` (Tic-Tac-Toe), `snake`, and `adventure` commands.
-- **`cogs/servers.py`** — `ServersCog`: `minecraft` bridge command; Valheim prefix commands + `/valheim start|stop|status` slash group; Enshrouded prefix commands + `/enshrouded start|stop` slash group.
-- **`cogs/fun.py`** — `FunCog`: `commands` (category help menu with buttons), `sandwich` bridge command; `simulate` has a separate prefix command (flexible `*args`) and slash command (explicit `topic`, `p1`, `p2` params).
-- **`cogs/rag.py`** — `RAGCog`: `learn` (prefix + slash, supports file attachment), `memory`, `cleardocs`, and `summarize` (bridge commands), `clearall` (prefix only, requires Manage Messages).
+- **`cogs/chat.py`** — `ChatCog`: queue-based message handling; `_enqueue()` pushes zero-arg callables onto per-channel `asyncio.Queue`; `_process_queue` drains sequentially. `on_message` and `on_reaction_add` both enqueue. `_handle_message` and `_handle_reaction` share the same flow: resolve personality, fetch history (with recency cutoff), retrieve RAG (decay-aware, history-deduplicated), fetch user profile, call `generate_gpt_response` with full tool set, handle tool calls, store response, fire background profile extraction. `on_ready` starts `summarizer_loop` task. Defines `_GENERATE_TOOL`, `_TRANSFORM_TOOL`, `_SEARCH_TOOL`, `_SUGGEST_TOOL`.
+- **`cogs/images.py`** — `generate`, `transform`, `image` commands. `transform` has separate prefix (reads `ctx.message.attachments`) and slash (explicit `attachment` option) implementations.
+- **`cogs/personality.py`** — `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash group (new/change/list/remove/pin/unpin).
+- **`cogs/games.py`** — `game` (Tic-Tac-Toe), `snake`, `adventure` commands.
+- **`cogs/servers.py`** — `minecraft` bridge command; Valheim prefix + `/valheim start|stop|status` slash group; Enshrouded prefix + `/enshrouded start|stop` slash group.
+- **`cogs/fun.py`** — `commands` and `help` bridge commands (both post the same formatted text list); `sandwich` bridge command; `simulate` has separate prefix (`*args`) and slash (explicit typed params) implementations.
+- **`cogs/rag.py`** — `learn` (prefix + slash, file attachment support), `memory`, `cleardocs`, `summarize` (bridge commands), `clearall` (prefix only, requires Manage Messages).
 
 ### Slash vs Prefix
 
-Most commands use `@bridge.bridge_command()` which creates both a `!prefix` and `/slash` command automatically. Exceptions where bridge doesn't work cleanly:
-- **`transform`**: prefix uses `ctx.message.attachments`; slash uses a `discord.Attachment` option
-- **`simulate`**: prefix uses `*args` (flexible `[p1] [p2] <topic>`); slash has explicit typed params
-- **`learn`**: prefix reads `ctx.message.attachments`; slash has an explicit `discord.Attachment` option
+Most commands use `@bridge.bridge_command()`. Exceptions:
+- **`transform`**: prefix reads `ctx.message.attachments`; slash takes explicit `discord.Attachment` option
+- **`simulate`**: prefix uses `*args`; slash has explicit typed `topic`, `p1`, `p2` params
+- **`learn`**: prefix reads `ctx.message.attachments`; slash takes explicit `discord.Attachment` option
 
 ### Support Modules
 
-- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT` constant; `generate_gpt_response()` (accepts optional `rag_context: list[str]` and `tools: list` for OpenAI tool calling — returns `(content, tool_calls)` tuple when tools are provided, plain string otherwise), `analyze_image()` (returns `str` content directly), `generate_image()`, `transform_image()`.
+- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT`; `generate_gpt_response(message_history, personality, rag_context, user_context, tools, auto_resolve)` — returns `(content, tool_calls)` tuple when tools provided; `analyze_image(base64, instructions, history, personality, user_context)`; `generate_image()`; `transform_image()`. `user_context` injected as `USER PROFILE:` section before RAG context in system prompt.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`.
-- **`chatbotfunc/logger.py`** — `setup_logging()`: configures the `bot` logger hierarchy. Console handler at INFO; `RotatingFileHandler` to `data/bot.log` (5MB × 3 backups) at `LOG_LEVEL` (default `WARNING`). Called once from `main.py`; all modules get a child logger via `logging.getLogger("bot.<module>")`.
-- **`chatbotfunc/utils.py`** — `fetch_message_history()`, `async_chat_completion()`, `split_message()`, `format_error_message()`, `encode_discord_image()` (async, uses aiohttp); `SUPPORTED_DOC_EXTENSIONS` frozenset — single source of truth for accepted file types, imported by `cogs/chat.py` and `cogs/rag.py`.
-- **`chatbotfunc/personalitymanager.py`** — `PersonalityManager`: reads/writes/manages personality descriptors from `.env`. `get_active()` / `set_active()` persist the selected personality via `ACTIVE_PERSONALITY=`. `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` manage per-channel pins stored in `data/channel_personalities.json`.
-- **`ragfunc/memory.py`** — `ChannelMemory` class (ChromaDB wrapper); `store_message()` (with quality filter via `_should_store()`), `store_document()`, `retrieve()` (with `DISTANCE_THRESHOLD` cosine filter), `clear_documents()`, `clear_all()`; async helpers: `async_store_message`, `async_store_document`, `async_retrieve`, `async_count`, `async_clear_documents`, `async_clear_all`.
-- **`gamefunc/adventure.py`** — `AdventureGame` class and map data. 55×23 grid dungeon built programmatically from room + corridor rectangles. 8-directional movement, items at (x,y) positions rendered as roguelike symbols, viewport rendering (33×15) centered on player. Win condition: pick up the Golden Crown.
-- **`gamefunc/adventure_panel.py`** — `AdventureView(discord.ui.View)`: 3×3 D-pad (8 directions), Pick Up / Inventory / Look / Quit buttons. Direction buttons disable when adjacent tile is a wall. Embed refreshes in place on every action. Win (Golden Crown pickup) and timeout both clear `bot.active_games` and disable all buttons.
-- **`gamefunc/snake_panel.py`** — `SnakeView(discord.ui.View)`: ⬆⬅⬇➡ D-pad buttons + Quit; embed edits in place on every move. Tracks score (apples eaten). Win/quit/timeout all clear `bot.active_games`.
-- **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (not the `mcrcon` library, which uses `signal.alarm()` and crashes outside the main thread).
-- **`gamefunc/minecraft_panel.py`** — `MinecraftPanel` Discord UI with live status embed and button enable/disable rules.
+- **`chatbotfunc/logger.py`** — `setup_logging()`: console at INFO, `RotatingFileHandler` to `data/bot.log` (5 MB × 3 backups) at `LOG_LEVEL`.
+- **`chatbotfunc/utils.py`** — `fetch_message_history(channel, bot, exclude_message_id, return_cutoff)` — optionally excludes one message ID and returns the oldest in-window timestamp as a recency cutoff; `async_chat_completion()`; `split_message()`; `format_error_message()`; `encode_discord_image()` (async, aiohttp); `SUPPORTED_DOC_EXTENSIONS` frozenset.
+- **`chatbotfunc/personalitymanager.py`** — `PersonalityManager(env_path)`: `data/personalities.json` is the source of truth; auto-migrates from `.env` on first run; `get_active()` / `set_active()`; `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` with in-memory pin cache (invalidated on write).
+- **`chatbotfunc/profiles.py`** — `get_user_context(user_id, display_name) -> str | None`: reads `data/user_profiles.json`, returns formatted fact string for system prompt injection. `extract_and_update(user_id, display_name, user_msg, bot_msg, model)`: async background task; sends extraction prompt to LLM, parses JSON array of new facts, merges into profile file.
+- **`chatbotfunc/summarizer.py`** — `summarizer_loop(model)`: background coroutine; `summarize_channel(channel_id, model)`: fetches expiring messages, applies skip/force logic using `data/summarizer_state.json`, calls LLM, stores permanent summary document, deletes originals.
+- **`ragfunc/memory.py`** — `ChannelMemory` (ChromaDB wrapper, singleton client via `_get_client()`): `store_message(role, content, message_id, context_snippet)`, `store_document(text, source)`, `retrieve(query, k, doc_type, before_ts)` (decay + threshold filter), `get_expiring(before_ts)`, `delete_by_ids(ids)`, `clear_documents()`, `clear_all()`; module-level `list_channel_ids()`; async helpers for all methods.
+- **`gamefunc/adventure.py`** — `AdventureGame`: 55×23 grid dungeon, 8-dir movement, viewport renderer (33×15). Win: pick up the Golden Crown.
+- **`gamefunc/adventure_panel.py`** — `AdventureView`: 3×3 D-pad, Pick Up / Inventory / Look / Quit. Direction buttons disable at walls. Embed refreshes in place.
+- **`gamefunc/snake_panel.py`** — `SnakeView`: D-pad buttons, score tracking, embed-in-place.
+- **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread).
+- **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed, button enable/disable rules.
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only).
-- **`funfunc/`** — Image search (Google CSE), web search (`web_search.py`, Tavily-backed — used by the AI `google_search` tool), sandwich generator.
+- **`funfunc/`** — `image_search.py` (Google CSE), `web_search.py` (Tavily, used by `google_search` AI tool), `sandwich.py`.
 
 ### Shared State
 
-All mutable state lives on the bot object, accessible from any Cog via `self.bot`:
+All mutable state on the bot object, accessible from any Cog via `self.bot`:
 
-- `bot.chatgpt_behaviour` — Active personality descriptor string; changed by `!change` / `/personality change`
-- `bot.active_games` — `dict[channel_id, bool]` prevents message handling during in-channel games
-- `bot.channel_image_state` — `dict[channel_id, {"last_generated": bytes|None, "last_transformed": bytes|None}]` tracks the most recent generated and transformed image per channel. `last_transformed` is preferred over `last_generated` when picking an image to transform (enables chaining). Set by `!generate`, `!transform`, and the AI image tools in `chat.py`.
+- `bot.chatgpt_behaviour` — active personality descriptor string
+- `bot.active_games` — `dict[channel_id, bool]` gates message handling during games
+- `bot.channel_image_state` — `dict[channel_id, {"last_generated": bytes|None, "last_transformed": bytes|None}]`; `last_transformed` preferred for chaining
 - `bot.personality_manager` — `PersonalityManager` instance
 
 ### Message Flow
 
 `on_message` in `ChatCog`:
-1. Returns early if message is from the bot itself
-2. Returns early for `!`-prefixed messages (bot routes commands automatically via `bridge.Bot`)
-3. Skips channels with active games
-4. Enqueues message into the channel's `asyncio.Queue`; starts a worker task for the channel if one isn't already running
-5. Worker calls `_handle_message` sequentially — one message at a time per channel, different channels process independently
-6. Resolves `channel_behaviour` = channel pin (if set) or global `bot.chatgpt_behaviour`
-7. Processes image attachments via `analyze_image()` if present in an allowed channel; sends response, then stores both the user prompt and analysis result in RAG as tagged message entries using real Discord message IDs
-8. If a supported file is attached (and `_should_respond()` is true), downloads it, stores in ChromaDB via `async_store_document`, breaks
-9. Calls `_should_respond()`: True if bot is @mentioned (any channel) OR if channel is in `CHANNEL_IDS` and no human @mentions are present
-10. Stores user message in ChromaDB via `async_store_message` (filtered by `_should_store()` — junk skipped)
-11. Retrieves RAG context: top-5 document chunks + top-`RAG_MESSAGE_CONTEXT` message chunks, both filtered by `DISTANCE_THRESHOLD`
-12. Fetches direct Discord history via `fetch_message_history`, appends user message
-13. Builds tools list: `_GENERATE_TOOL` and `_SEARCH_TOOL` always included; `_TRANSFORM_TOOL` added only if `bot.channel_image_state` has a prior image for this channel
-14. Calls `generate_gpt_response()` with RAG context, tools, and `auto_resolve={"google_search": _execute_search}`; receives `(content, tool_calls)` tuple. The `google_search` tool is resolved *inside* `generate_gpt_response` (Tavily call + a second API call so the model sees results); only image tool calls are returned to the caller
-15. For each returned tool call: `generate_image` → calls `generate_image()`, posts as `discord.File`, stores `last_generated` in channel state; `transform_image` → calls `transform_image()` on `last_transformed or last_generated`, posts result, stores `last_transformed`
-16. If the model also returned text content, sends it as normal chunked message and stores in ChromaDB
+1. Early return if author is bot, message starts with `!`, or channel has active game
+2. `_enqueue(channel_id, lambda: _handle_message(message))` — pushes callable onto per-channel queue; starts worker task if none running
+3. Worker drains queue sequentially via `await coro_fn()` — one at a time per channel
+
+`_handle_message`:
+1. Resolve `channel_behaviour` = channel pin or `bot.chatgpt_behaviour`
+2. Evaluate `should_respond` once (used for all three attachment/text paths)
+3. Image attachment path: `analyze_image()`, send response, store user + analysis to RAG with message IDs, return
+4. Document attachment path: download, `async_store_document`, break
+5. Text path — `should_respond` gate:
+   a. Fetch `message_history` with `return_cutoff=True` to get `history_cutoff_ts`
+   b. Store user message to RAG with `context_snippet` = last assistant reply
+   c. Retrieve `rag_docs` (no time filter) + `rag_msgs` (`before_ts=history_cutoff_ts`, decay-aware)
+   d. Apply `MAX_CONTEXT_TOKENS` trim if set (tail of `rag_msgs` first, then `rag_docs`)
+   e. Log estimated token count at DEBUG
+   f. Fetch user profile: `get_user_context(author.id, author.display_name)`
+   g. Build tools list: `[_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]` + `_TRANSFORM_TOOL` if channel has prior image
+   h. Call `generate_gpt_response(history, personality, rag_context, user_context, tools, auto_resolve={google_search, suggest_activity})`
+   i. `google_search` and `suggest_activity` auto-resolved internally; only image tool calls returned
+   j. Handle `generate_image` / `transform_image` tool calls, post as `discord.File`, update `channel_image_state`
+   k. Send text response in chunks, store to RAG with `context_snippet=message.content[:200]`
+   l. `asyncio.create_task(extract_and_update(...))` — background profile extraction, never blocks
+
+`on_reaction_add`: enqueues `_handle_reaction` through the same queue. `_handle_reaction` mirrors the text path (history cutoff, decay RAG, user profile, full tool set) and stores its response to RAG.
 
 ### Bot Commands Reference
 
 | Prefix | Slash | Description |
 |---|---|---|
 | `!generate <prompt>` | `/generate` | Generate an image via gpt-image-1 |
-| `!transform <instructions>` | `/transform` | Transform an image |
-| `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel (last transformed, or last generated if no transform yet) |
+| `!transform <instructions>` | `/transform` | Transform an attached image |
+| `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel |
 | `!image <query>` | `/image` | Search and display an image with AI description |
-
-| `!change [n]` | — | Switch to personality #n or random |
-| `!new <descriptor>` | — | Add a new personality descriptor |
-| `!list` | — | List available personalities |
-| — | `/personality change\|new\|list\|remove` | Personality slash commands |
-| `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate conversation between two personalities |
-| `!game X\|O` | `/game` | Play Tic-Tac-Toe |
-| `!snake` | `/snake` | Play Snake (button D-pad, score tracked, panel-based) |
-| `!adventure` | `/adventure` | ASCII dungeon game (QUD-style grid map, 8-directional movement) |
-| `!minecraft` | `/minecraft` | Open the Minecraft server management panel |
-| `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
-| `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
-| `!commands` | `/commands` | Browse all bot commands by category (button menu) |
-| `!sandwich` | `/sandwich` | Generate a random sandwich |
+| `!change [n]` | `/personality change` | Switch to personality #n or random |
+| `!new <descriptor>` | `/personality new` | Add a new personality descriptor |
+| `!list` | `/personality list` | List available personalities |
+| — | `/personality remove` | Remove a personality by index |
 | `!pin [n]` | `/personality pin [n]` | Pin personality #n to this channel |
 | `!unpin` | `/personality unpin` | Remove channel personality pin |
+| `!simulate [p1] [p2] <topic>` | `/simulate` | Simulate conversation between two personalities |
+| `!game X\|O` | `/game` | Play Tic-Tac-Toe |
+| `!snake` | `/snake` | Play Snake |
+| `!adventure` | `/adventure` | ASCII dungeon (QUD-style grid, 8-directional) |
+| `!minecraft` | `/minecraft` | Minecraft server management panel |
+| `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
+| `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
+| `!commands` / `!help` | `/commands` / `/help` | Show all bot commands (formatted text list) |
+| `!sandwich` | `/sandwich` | Generate a random sandwich with AI image |
 | `!learn [text]` | `/learn` | Store text or file in RAG memory |
 | `!memory` | `/memory` | Show memory stats for this channel |
-| `!summarize` | `/summarize` | TL;DR of recent conversation in this channel |
+| `!summarize` | `/summarize` | TL;DR of recent conversation |
 | `!cleardocs` | `/cleardocs` | Clear stored documents (keeps message history) |
 | `!clearall` | — | Wipe all memory for this channel (Manage Messages required) |
