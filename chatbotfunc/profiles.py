@@ -57,15 +57,17 @@ async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot
 
     max_input = int(os.getenv("USER_PROFILE_MSG_CHARS", "500"))
     prompt = (
-        f"Extract any new personal facts about the user '{display_name}' from this exchange "
-        f"that would help a chatbot remember them better in future conversations. "
-        f"Focus on: preferences, hobbies, games they play, things they said about themselves, "
-        f"running jokes, recurring topics, or anything distinctive.\n\n"
+        f"Extract personal facts about the user '{display_name}' from their message ONLY.\n\n"
+        f"RULES:\n"
+        f"- Only extract facts the user explicitly stated about themselves (e.g. 'I like X', 'I play Y', 'I prefer Z').\n"
+        f"- Do NOT infer preferences from the bot's reply. The bot's response reflects the whole channel conversation, "
+        f"not just this user — something the bot joked about or engaged with may have been started by someone else.\n"
+        f"- If the user just replied to others, reacted to a joke, or didn't share anything explicitly personal, return [].\n\n"
         f"Already known: {existing_str}\n\n"
-        f"User: {user_msg[:max_input]}\n"
-        f"Bot: {bot_msg[:max_input]}\n\n"
+        f"User's message: {user_msg[:max_input]}\n"
+        f"Bot's reply (full channel context — do not infer user preferences from this): {bot_msg[:max_input]}\n\n"
         f"Return ONLY a JSON array of NEW short fact strings (under 15 words each) not already "
-        f"covered by the known facts. Return [] if nothing new. "
+        f"covered by the known facts. Return [] if nothing new.\n"
         f'Example: ["prefers modded Minecraft", "building a Discord bot"]'
     )
 
