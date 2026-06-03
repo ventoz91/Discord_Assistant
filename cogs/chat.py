@@ -226,8 +226,10 @@ class ChatCog(commands.Cog):
             or self.bot.chatgpt_behaviour
         )
 
+        should_respond = self._should_respond(message)
+
         image_processed = False
-        if message.attachments and self._should_respond(message):
+        if message.attachments and should_respond:
             for attachment in message.attachments:
                 if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
                     async with message.channel.typing():
@@ -248,7 +250,7 @@ class ChatCog(commands.Cog):
         if image_processed:
             return
 
-        if message.attachments and self._should_respond(message):
+        if message.attachments and should_respond:
             for attachment in message.attachments:
                 fname = attachment.filename.lower()
                 if any(fname.endswith(ext) for ext in SUPPORTED_DOC_EXTENSIONS):
@@ -258,7 +260,7 @@ class ChatCog(commands.Cog):
                         logger.info("stored %s in RAG memory", attachment.filename)
                     break
 
-        if self._should_respond(message):
+        if should_respond:
             await async_store_message(message.channel.id, "user", message.content, message.id)
 
             async with message.channel.typing():

@@ -13,9 +13,6 @@ _DB_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'chroma')
 # How many chunks to retrieve per query
 RETRIEVAL_K = 5
 
-# How many recent messages to always keep in direct context (recency still matters)
-RECENT_CONTEXT_MESSAGES = 6
-
 # Maximum characters per document chunk
 CHUNK_SIZE = 3000
 CHUNK_OVERLAP = 300
@@ -53,9 +50,15 @@ def _should_store(content: str) -> bool:
     return True
 
 
-def _get_client():
-    os.makedirs(os.path.abspath(_DB_PATH), exist_ok=True)
-    return chromadb.PersistentClient(path=os.path.abspath(_DB_PATH))
+_client: chromadb.PersistentClient | None = None
+
+
+def _get_client() -> chromadb.PersistentClient:
+    global _client
+    if _client is None:
+        os.makedirs(os.path.abspath(_DB_PATH), exist_ok=True)
+        _client = chromadb.PersistentClient(path=os.path.abspath(_DB_PATH))
+    return _client
 
 
 def _collection_name(channel_id: int) -> str:
@@ -109,8 +112,10 @@ class ChannelMemory:
         """Store a single Discord message. Skips empty or low-value content."""
         if not content or not content.strip():
             return
-        # Always store bot responses; filter junk from user messages
-        if role != "assistant" and not _should_store(content):
+        if not _should_store(content):
+            return
+        # Short bot replies ("Got it", "I'm not sure") aren't worth indexing
+        if role == "assistant" and len(content.strip()) < 40:
             return
         doc_id = f"msg-{message_id}" if message_id else f"msg-{int(time.time() * 1000)}"
         expires_at = int(time.time()) + MESSAGE_TTL_DAYS * 86400

@@ -9,6 +9,7 @@ class PersonalityManager:
     def __init__(self, filepath=".env"):
         self.filepath = filepath
         self.personalities = self.read_personalities_from_file()
+        self._pins_cache: dict | None = None
 
     def read_personalities_from_file(self):
         if not os.path.exists(self.filepath):
@@ -87,15 +88,20 @@ class PersonalityManager:
     # ── Per-channel personality pins ──────────────────────────────────────────
 
     def _load_pins(self) -> dict:
+        if self._pins_cache is not None:
+            return self._pins_cache
         if not os.path.exists(_CHANNEL_PIN_PATH):
-            return {}
-        with open(_CHANNEL_PIN_PATH, "r") as f:
-            return json.load(f)
+            self._pins_cache = {}
+        else:
+            with open(_CHANNEL_PIN_PATH, "r") as f:
+                self._pins_cache = json.load(f)
+        return self._pins_cache
 
     def _save_pins(self, pins: dict):
         os.makedirs(os.path.dirname(_CHANNEL_PIN_PATH), exist_ok=True)
         with open(_CHANNEL_PIN_PATH, "w") as f:
             json.dump(pins, f, indent=2)
+        self._pins_cache = pins
 
     def get_channel_personality(self, channel_id: int) -> str | None:
         return self._load_pins().get(str(channel_id))
