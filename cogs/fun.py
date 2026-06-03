@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands, bridge
 import logging
@@ -10,126 +11,88 @@ from chatbotfunc.utils import split_message
 
 logger = logging.getLogger("bot.fun")
 
-# ── /commands help menu ───────────────────────────────────────────────────────
+# ── Help text ─────────────────────────────────────────────────────────────────
 
-_CATEGORIES: dict[str, tuple[discord.Color, list[tuple[str, str]]]] = {
-    "💬 Chat": (discord.Color.blurple(), [
-        ("`!change [n]` / `/personality change`",   "Switch to personality #n, or random"),
-        ("`!new <text>` / `/personality new`",       "Add a new personality descriptor"),
-        ("`!list` / `/personality list`",            "List all personalities"),
-        ("`!pin [n]` / `/personality pin`",          "Pin a personality to this channel"),
-        ("`!unpin` / `/personality unpin`",          "Remove the channel personality pin"),
-        ("`!simulate [p1] [p2] <topic>` / `/simulate`", "Simulate a debate between two personalities"),
-    ]),
-    "🧠 Memory": (discord.Color.purple(), [
-        ("`!learn [text]` / `/learn`",   "Store text or an attached file in memory"),
-        ("`!memory` / `/memory`",        "Show memory stats for this channel"),
-        ("`!summarize` / `/summarize`",  "TL;DR of recent conversation"),
-        ("`!cleardocs` / `/cleardocs`",  "Remove stored documents (keeps message history)"),
-        ("`!clearall`",                  "Wipe all memory for this channel (Manage Messages required)"),
-    ]),
-    "🖼️ Images": (discord.Color.green(), [
-        ("`!generate <prompt>` / `/generate`",            "Generate an image with AI"),
-        ("`!transform <instructions>` / `/transform`",    "Transform an attached image"),
-        ("`!transform last <instructions>`",              "Transform the most recent image in this channel"),
-        ("`!image <query>` / `/image`",                   "Search and describe an image"),
-        ("*(natural language)*",                          "Ask the bot to generate or transform in conversation"),
-    ]),
-    "🎮 Games": (discord.Color.orange(), [
-        ("`!game X|O` / `/game`",     "Play Tic-Tac-Toe"),
-        ("`!snake` / `/snake`",       "Play Snake"),
-        ("`!adventure` / `/adventure`", "ASCII dungeon (QUD-style, 8-directional movement)"),
-    ]),
-    "🖥️ Servers": (discord.Color.dark_gray(), [
-        ("`!minecraft` / `/minecraft`",                         "Open the Minecraft server panel"),
-        ("`!start_valheim` / `/valheim start`",                 "Start the Valheim server"),
-        ("`!stop_valheim` / `/valheim stop`",                   "Stop the Valheim server"),
-        ("`!valheim_status` / `/valheim status`",               "Check Valheim server status"),
-        ("`!start_enshrouded` / `/enshrouded start`",           "Start the Enshrouded server"),
-        ("`!stop_enshrouded` / `/enshrouded stop`",             "Stop the Enshrouded server"),
-    ]),
-    "🎲 Misc": (discord.Color.teal(), [
-        ("`!sandwich` / `/sandwich`", "Generate a random sandwich with an image"),
-    ]),
+_CATEGORIES: dict[str, list[tuple[str, str]]] = {
+    "💬  CHAT": [
+        ("!change [n]  ·  /personality change",        "Switch to personality #n, or random"),
+        ("!new <descriptor>  ·  /personality new",     "Add a new personality"),
+        ("!list  ·  /personality list",                "List all personalities"),
+        ("!pin [n]  ·  /personality pin",              "Pin a personality to this channel"),
+        ("!unpin  ·  /personality unpin",              "Remove the channel personality pin"),
+        ("!simulate [p1] [p2] <topic>  ·  /simulate", "Debate between two personalities"),
+    ],
+    "🧠  MEMORY": [
+        ("!learn [text]  ·  /learn",   "Store text or a file in memory"),
+        ("!memory  ·  /memory",        "Memory stats for this channel"),
+        ("!summarize  ·  /summarize",  "TL;DR of recent conversation"),
+        ("!cleardocs  ·  /cleardocs",  "Remove stored docs (keeps messages)"),
+        ("!clearall",                  "Wipe all memory — requires Manage Messages"),
+    ],
+    "🖼️  IMAGES": [
+        ("!generate <prompt>  ·  /generate",  "Generate an image with AI"),
+        ("!transform <inst>  ·  /transform",  "Transform an attached image"),
+        ("!transform last <inst>",            "Transform the last image in this channel"),
+        ("!image <query>  ·  /image",         "Search and describe an image"),
+        ("(natural language)",                "Just ask in chat — it works too"),
+    ],
+    "🎮  GAMES": [
+        ("!game X|O  ·  /game",        "Tic-Tac-Toe"),
+        ("!snake  ·  /snake",          "Snake"),
+        ("!adventure  ·  /adventure",  "ASCII dungeon, 8-directional movement"),
+    ],
+    "🖥️  SERVERS": [
+        ("!minecraft  ·  /minecraft",               "Minecraft server panel"),
+        ("!start_valheim  ·  /valheim start",       "Start Valheim"),
+        ("!stop_valheim  ·  /valheim stop",         "Stop Valheim"),
+        ("!valheim_status  ·  /valheim status",     "Valheim status"),
+        ("!start_enshrouded  ·  /enshrouded start", "Start Enshrouded"),
+        ("!stop_enshrouded  ·  /enshrouded stop",   "Stop Enshrouded"),
+    ],
+    "🎲  MISC": [
+        ("!sandwich  ·  /sandwich",  "Random sandwich with an AI image"),
+    ],
 }
 
 
-def _home_embed() -> discord.Embed:
-    embed = discord.Embed(
-        title="📖 Commands",
-        description="Select a category to see available commands.",
-        color=discord.Color.blurple(),
-    )
-    for label, (_, entries) in _CATEGORIES.items():
-        embed.add_field(name=label, value=f"{len(entries)} command{'s' if len(entries) != 1 else ''}", inline=True)
-    return embed
-
-
-def _category_embed(label: str) -> discord.Embed:
-    color, entries = _CATEGORIES[label]
-    embed = discord.Embed(title=f"{label} Commands", color=color)
-    for name, desc in entries:
-        embed.add_field(name=name, value=desc, inline=False)
-    return embed
-
-
-class _CommandsView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=120)
-        self.message: discord.Message | None = None
-        self._show_home()
-
-    async def on_timeout(self):
-        for child in self.children:
-            child.disabled = True
-        if self.message:
-            try:
-                await self.message.edit(view=self)
-            except Exception:
-                pass
-
-    def _show_home(self):
-        self.clear_items()
-        for i, label in enumerate(_CATEGORIES):
-            self.add_item(_CategoryButton(label, row=i // 5))
-
-    def _show_category(self, label: str):
-        self.clear_items()
-        self.add_item(_BackButton())
-
-
-class _CategoryButton(discord.ui.Button):
-    def __init__(self, label: str, row: int):
-        super().__init__(label=label, style=discord.ButtonStyle.primary, row=row)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: _CommandsView = self.view
-        view._show_category(self.label)
-        await interaction.response.edit_message(embed=_category_embed(self.label), view=view)
-
-
-class _BackButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="← Back", style=discord.ButtonStyle.secondary, row=0)
-
-    async def callback(self, interaction: discord.Interaction):
-        view: _CommandsView = self.view
-        view._show_home()
-        await interaction.response.edit_message(embed=_home_embed(), view=view)
+def _build_help_text() -> str:
+    lines = [
+        "```",
+        "╔══════════════════════════════════════════════╗",
+        "║          B O T   C O M M A N D S            ║",
+        "╚══════════════════════════════════════════════╝",
+        "```",
+        "",
+    ]
+    for label, entries in _CATEGORIES.items():
+        lines.append(f"**{label}** {'─' * 30}")
+        for cmd, desc in entries:
+            lines.append(f"`{cmd}`  —  {desc}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
 
 
 class FunCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # ── Commands help menu ────────────────────────────────────────────────────
+    # ── Help / commands ───────────────────────────────────────────────────────
 
-    @bridge.bridge_command(name="commands", description="Browse all bot commands by category")
-    async def show_commands(self, ctx):
+    async def _post_help(self, ctx):
         await ctx.defer()
-        view = _CommandsView()
-        msg = await ctx.respond(embed=_home_embed(), view=view)
-        view.message = await msg.original_response() if hasattr(msg, "original_response") else msg
+        text = _build_help_text()
+        chunks = split_message(text)
+        await ctx.respond(chunks[0])
+        for chunk in chunks[1:]:
+            await ctx.channel.send(chunk)
+
+    @bridge.bridge_command(name="commands", description="Show all bot commands")
+    async def show_commands(self, ctx):
+        await self._post_help(ctx)
+
+    @bridge.bridge_command(name="help", description="Show all bot commands")
+    async def show_help(self, ctx):
+        await self._post_help(ctx)
 
     # ── Simulate (prefix keeps flexible *args; slash has explicit params) ──────
 
