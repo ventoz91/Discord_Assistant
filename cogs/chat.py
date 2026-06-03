@@ -64,6 +64,48 @@ async def _execute_search(args: dict) -> str:
     return await web_search(args.get("query", ""))
 
 
+_SUGGEST_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "suggest_activity",
+        "description": (
+            "Suggest something to do — either a bot feature or an activity previously "
+            "mentioned by users in this channel. Call this when someone asks what to do, "
+            "says they're bored, asks for a suggestion, or asks what the bot can do."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }
+}
+
+_BOT_SUGGESTIONS = [
+    ("play Snake",                  "use !snake or /snake — button D-pad, score tracked"),
+    ("play Tic-Tac-Toe",            "use !game X or !game O or /game"),
+    ("explore the ASCII dungeon",   "use !adventure or /adventure — 8-directional roguelike"),
+    ("generate an AI image",        "use !generate <prompt> or /generate"),
+    ("transform an existing image", "post an image then use !transform or /transform"),
+    ("make a random sandwich",      "use !sandwich or /sandwich — comes with an AI photo"),
+    ("simulate a debate",           "use !simulate <topic> or /simulate — pick two personalities to argue"),
+    ("search the web",              "just ask me to look something up — I have a search tool"),
+    ("change my personality",       "use !change or /personality change"),
+]
+
+
+def _make_suggest_executor(channel_id: int):
+    import random
+
+    async def _execute(args: dict) -> str:
+        past = await async_retrieve(
+            channel_id, "something fun activity let's do play", k=15, doc_type="message"
+        )
+        if past and random.random() < 0.5:
+            snippet = random.choice(past)
+            return f"A past activity mentioned in this channel: {snippet}\nUse this as inspiration for a suggestion."
+        label, how = random.choice(_BOT_SUGGESTIONS)
+        return f"Suggest the user tries: {label} — {how}"
+
+    return _execute
+
+
 class ChatCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -237,13 +279,16 @@ class ChatCog(commands.Cog):
                 message_history.append({"role": "user", "content": message.content})
 
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})
-                tools = [_GENERATE_TOOL, _SEARCH_TOOL]
+                tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
                 if ch_state.get("last_transformed") or ch_state.get("last_generated"):
                     tools.append(_TRANSFORM_TOOL)
 
                 gpt_response, tool_calls = await generate_gpt_response(
                     message_history, channel_behaviour, rag_context=rag_context, tools=tools,
-                    auto_resolve={"google_search": _execute_search}
+                    auto_resolve={
+                        "google_search": _execute_search,
+                        "suggest_activity": _make_suggest_executor(message.channel.id),
+                    }
                 )
 
                 for tc in tool_calls:
