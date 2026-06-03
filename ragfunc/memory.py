@@ -24,6 +24,12 @@ DISTANCE_THRESHOLD = float(os.getenv("DISTANCE_THRESHOLD", "0.8"))
 # How long chat messages stay retrievable. Documents (from !learn) never expire.
 MESSAGE_TTL_DAYS = int(os.getenv("MESSAGE_TTL_DAYS", "30"))
 
+# Recency decay half-life for message retrieval scoring.
+# A message this many days old needs to be twice as similar to survive the same
+# distance threshold as a brand-new message. Documents are never decayed.
+# Set to 0 to disable decay entirely.
+RAG_DECAY_HALFLIFE_DAYS = float(os.getenv("RAG_DECAY_HALFLIFE_DAYS", "14"))
+
 # Single-word/short filler phrases not worth storing
 _FILLER_PHRASES = {
     "lol", "lmao", "lmfao", "haha", "hehe", "ok", "okay", "k", "kk",
@@ -108,8 +114,13 @@ class ChannelMemory:
 
     # ── Writing ───────────────────────────────────────────────────────────────
 
-    def store_message(self, role: str, content: str, message_id: int = None):
-        """Store a single Discord message. Skips empty or low-value content."""
+    def store_message(self, role: str, content: str, message_id: int = None, context_snippet: str = None):
+        """Store a single Discord message. Skips empty or low-value content.
+
+        context_snippet: a short excerpt of the preceding message (≤200 chars),
+        stored in metadata and prepended to retrieved results so the model sees
+        what prompted each retrieved entry rather than an isolated fragment.
+        """
         if not content or not content.strip():
             return
         if not _should_store(content):
@@ -119,11 +130,14 @@ class ChannelMemory:
             return
         doc_id = f"msg-{message_id}" if message_id else f"msg-{int(time.time() * 1000)}"
         expires_at = int(time.time()) + MESSAGE_TTL_DAYS * 86400
+        meta = {"type": "message", "role": role, "ts": int(time.time()), "expires_at": expires_at}
+        if context_snippet:
+            meta["ctx"] = context_snippet[:200]
         try:
             self._col.upsert(
                 ids=[doc_id],
                 documents=[f"{role}: {content}"],
-                metadatas=[{"type": "message", "role": role, "ts": int(time.time()), "expires_at": expires_at}],
+                metadatas=[meta],
             )
         except Exception as e:
             logger.exception("store_message failed")
@@ -152,11 +166,17 @@ class ChannelMemory:
         If before_ts is set, only entries stored strictly before that unix
         timestamp are returned. Used to exclude messages already covered by the
         direct-history recency window, so RAG only surfaces older context.
+
+        For message-type entries, applies exponential recency decay: older messages
+        need to be proportionally more similar to pass the distance threshold.
+        Documents are never decayed. Fetches extra candidates to compensate for
+        stricter effective filtering, then re-sorts and returns top k.
         """
         count = self._col.count()
         if count == 0:
             return []
-        k = min(k, count)
+        # Fetch extra candidates so decay filtering doesn't starve the result set
+        fetch_k = min(k * 3, count)
         conditions = []
         if doc_type:
             conditions.append({"type": doc_type})
@@ -171,7 +191,7 @@ class ChannelMemory:
         try:
             results = self._col.query(
                 query_texts=[query],
-                n_results=k,
+                n_results=fetch_k,
                 where=where,
                 include=["documents", "distances", "metadatas"],
             )
@@ -179,11 +199,29 @@ class ChannelMemory:
             distances = results["distances"][0] if results["distances"] else []
             metadatas = results["metadatas"][0] if results["metadatas"] else []
             now = int(time.time())
-            return [
-                doc for doc, dist, meta in zip(docs, distances, metadatas)
-                if dist <= DISTANCE_THRESHOLD
-                and (meta.get("expires_at", 0) == 0 or meta.get("expires_at", 0) > now)
-            ]
+            halflife = RAG_DECAY_HALFLIFE_DAYS
+
+            scored = []
+            for doc, dist, meta in zip(docs, distances, metadatas):
+                expires_at = meta.get("expires_at", 0)
+                if expires_at != 0 and expires_at <= now:
+                    continue
+                # Apply recency decay to messages only; documents score as-is
+                if halflife > 0 and meta.get("type") == "message":
+                    age_days = (now - meta.get("ts", now)) / 86400
+                    # adjusted_distance = distance / 2^(-age/halflife)
+                    # Old messages appear further away, need higher similarity to survive
+                    decay = 2 ** (-age_days / halflife)
+                    effective_dist = dist / decay if decay > 0 else float("inf")
+                else:
+                    effective_dist = dist
+                if effective_dist <= DISTANCE_THRESHOLD:
+                    ctx = meta.get("ctx")
+                    display = f"[re: {ctx}]\n{doc}" if ctx else doc
+                    scored.append((effective_dist, display))
+
+            scored.sort(key=lambda x: x[0])
+            return [doc for _, doc in scored[:k]]
         except Exception as e:
             logger.exception("retrieve failed")
             return []
@@ -223,9 +261,9 @@ class ChannelMemory:
 
 # ── Async helpers (run DB ops in thread so they don't block the event loop) ──
 
-async def async_store_message(channel_id: int, role: str, content: str, message_id: int = None):
+async def async_store_message(channel_id: int, role: str, content: str, message_id: int = None, context_snippet: str = None):
     mem = ChannelMemory(channel_id)
-    await asyncio.to_thread(mem.store_message, role, content, message_id)
+    await asyncio.to_thread(mem.store_message, role, content, message_id, context_snippet)
 
 
 async def async_store_document(channel_id: int, text: str, source: str = "upload") -> int:

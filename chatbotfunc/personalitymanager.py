@@ -1,89 +1,92 @@
-import random
 import os
 import json
 
 _CHANNEL_PIN_PATH = os.path.join("data", "channel_personalities.json")
+_PERSONALITY_PATH = os.path.join("data", "personalities.json")
+
+
+def _read_env_personalities(env_path: str) -> tuple[list[str], str]:
+    """Read personality list and active descriptor from a .env file."""
+    personalities = []
+    active = ""
+    if not os.path.exists(env_path):
+        return personalities, active
+    with open(env_path, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("PERSONALITY="):
+                personalities.append(line[len("PERSONALITY="):])
+            elif line.startswith("ACTIVE_PERSONALITY="):
+                active = line[len("ACTIVE_PERSONALITY="):]
+    return personalities, active
 
 
 class PersonalityManager:
-    def __init__(self, filepath=".env"):
-        self.filepath = filepath
-        self.personalities = self.read_personalities_from_file()
+    """Manages personality descriptors stored in data/personalities.json.
+
+    On first run, auto-migrates PERSONALITY= and ACTIVE_PERSONALITY= entries
+    from the .env file so existing personalities are preserved. After migration
+    the .env entries are left in place but ignored.
+    """
+
+    def __init__(self, env_path: str = ".env"):
+        self.env_path = env_path
+        os.makedirs("data", exist_ok=True)
+        self._ensure_store()
+        self._data = self._load()
         self._pins_cache: dict | None = None
 
-    def read_personalities_from_file(self):
-        if not os.path.exists(self.filepath):
-            return []
-        with open(self.filepath, "r") as f:
-            lines = f.readlines()
-        return [
-            line.strip()[len("PERSONALITY="):]
-            for line in lines
-            if line.strip().startswith("PERSONALITY=")
-        ]
+    # ── Internal store ────────────────────────────────────────────────────────
 
-    def add_personality(self, new_personality):
-        if new_personality not in self.personalities:
-            with open(self.filepath, "a") as f:
-                f.write(f"PERSONALITY={new_personality}\n")
-            self.personalities = self.read_personalities_from_file()
-            return True
-        return False
+    def _ensure_store(self):
+        """Create personalities.json from .env if it doesn't exist yet."""
+        if os.path.exists(_PERSONALITY_PATH):
+            return
+        personalities, active = _read_env_personalities(self.env_path)
+        data = {
+            "personalities": personalities,
+            "active": active or (personalities[0] if personalities else ""),
+        }
+        with open(_PERSONALITY_PATH, "w") as f:
+            json.dump(data, f, indent=2)
 
-    def remove_personality(self, index):
-        if not os.path.exists(self.filepath):
+    def _load(self) -> dict:
+        with open(_PERSONALITY_PATH, "r") as f:
+            return json.load(f)
+
+    def _save(self):
+        with open(_PERSONALITY_PATH, "w") as f:
+            json.dump(self._data, f, indent=2)
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    @property
+    def personalities(self) -> list[str]:
+        return self._data["personalities"]
+
+    def add_personality(self, descriptor: str) -> bool:
+        if descriptor in self._data["personalities"]:
+            return False
+        self._data["personalities"].append(descriptor)
+        self._save()
+        return True
+
+    def remove_personality(self, index: int) -> str | None:
+        adjusted = index - 1
+        if not (0 <= adjusted < len(self._data["personalities"])):
             return None
-        with open(self.filepath, "r") as f:
-            all_lines = f.readlines()
-
-        personalities = [
-            line.strip()[len("PERSONALITY="):]
-            for line in all_lines
-            if line.strip().startswith("PERSONALITY=")
-        ]
-        other_lines = [l for l in all_lines if not l.strip().startswith("PERSONALITY=")]
-
-        adjusted_index = index - 1
-        if not (0 <= adjusted_index < len(personalities)):
-            return None
-
-        removed = personalities.pop(adjusted_index)
-
-        with open(self.filepath, "w") as f:
-            for line in other_lines:
-                f.write(line)
-            for p in personalities:
-                f.write(f"PERSONALITY={p}\n")
-
-        self.personalities = self.read_personalities_from_file()
+        removed = self._data["personalities"].pop(adjusted)
+        if self._data["active"] == removed:
+            self._data["active"] = self._data["personalities"][0] if self._data["personalities"] else ""
+        self._save()
         return removed
 
     def get_active(self) -> str:
-        """Return the last persisted active personality, falling back to index 0."""
-        if not os.path.exists(self.filepath):
-            return self.personalities[0] if self.personalities else ""
-        with open(self.filepath, "r") as f:
-            for line in f:
-                if line.strip().startswith("ACTIVE_PERSONALITY="):
-                    return line.strip()[len("ACTIVE_PERSONALITY="):]
-        return self.personalities[0] if self.personalities else ""
+        return self._data.get("active", self._data["personalities"][0] if self._data["personalities"] else "")
 
     def set_active(self, descriptor: str):
-        """Persist the active personality to .env as ACTIVE_PERSONALITY=."""
-        if not os.path.exists(self.filepath):
-            return
-        with open(self.filepath, "r") as f:
-            lines = f.readlines()
-        existing = any(l.strip().startswith("ACTIVE_PERSONALITY=") for l in lines)
-        if existing:
-            lines = [
-                f"ACTIVE_PERSONALITY={descriptor}\n" if l.strip().startswith("ACTIVE_PERSONALITY=") else l
-                for l in lines
-            ]
-        else:
-            lines.append(f"ACTIVE_PERSONALITY={descriptor}\n")
-        with open(self.filepath, "w") as f:
-            f.writelines(lines)
+        self._data["active"] = descriptor
+        self._save()
 
     # ── Per-channel personality pins ──────────────────────────────────────────
 
@@ -118,4 +121,3 @@ class PersonalityManager:
             self._save_pins(pins)
             return True
         return False
-

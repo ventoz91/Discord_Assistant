@@ -25,6 +25,8 @@ A single **`.env`** file at the project root holds all configuration:
 - `RAG_DOC_CONTEXT` — Number of document chunks retrieved from ChromaDB per response (default: 5). Separate from `RAG_MESSAGE_CONTEXT` — controls how much `!learn` content is surfaced.
 - `MESSAGE_TTL_DAYS` — Days before a stored chat message is excluded from retrieval (default: 30). Documents never expire.
 - `DISTANCE_THRESHOLD` — Cosine distance cutoff for RAG retrieval (default: 0.8). Results above this are dropped.
+- `RAG_DECAY_HALFLIFE_DAYS` — Recency decay half-life for message retrieval (default: 14). A message this many days old must be twice as similar to survive the distance threshold. Set to 0 to disable. Documents are never decayed.
+- `MAX_CONTEXT_TOKENS` — If set, trims RAG context (messages first, then docs) before each LLM call to stay under this estimated token budget. Unset by default (no cap). Estimate is chars÷4, so give yourself headroom.
 - `MAX_TOKENS` — Max completion tokens for responses (default: 500)
 - `TEMPERATURE` — Response creativity, 0.0–2.0 (default: 1.5). Higher = more creative/unpredictable; lower = more focused. Read at call time in `generate_gpt_response`.
 - `IMAGE_SIZE` — Image generation/transform dimensions: `1024x1024` / `1536x1024` / `1024x1536` (default: `1024x1024`).

@@ -153,56 +153,11 @@ class ChatCog(commands.Cog):
     async def on_ready(self):
         logger.info("Logged in as %s | personality: %s", self.bot.user.name, self.bot.chatgpt_behaviour)
 
-    @commands.Cog.listener()
-    async def on_reaction_add(self, reaction, user):
-        if os.getenv("REACTION_RESPONSES", "true").lower() != "true":
-            return
-        if reaction.message.author != self.bot.user or user == self.bot.user:
-            return
-
-        channel = reaction.message.channel
-        channel_behaviour = (
-            self.bot.personality_manager.get_channel_personality(channel.id)
-            or self.bot.chatgpt_behaviour
-        )
-
-        message_history = await fetch_message_history(channel, self.bot)
-        if not any(m['role'] == 'assistant' for m in message_history):
-            return
-
-        emoji_name = reaction.emoji.name if hasattr(reaction.emoji, 'name') else str(reaction.emoji)
-        prompt = f"{user.display_name} reacted to your last message with {emoji_name}. Respond in character."
-
-        rag_docs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
-        rag_msgs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message")
-        rag_context = rag_docs + rag_msgs or None
-
-        message_history.append({"role": "user", "content": prompt})
-        try:
-            response = await generate_gpt_response(message_history, channel_behaviour, rag_context=rag_context)
-            if response:
-                await channel.send(response)
-        except Exception as e:
-            logger.exception("on_reaction_add failed")
-            msg = format_error_message(e)
-            await channel.send(msg)
-
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        # Fast early returns — don't queue these
-        if message.author == self.bot.user:
-            return
-        if message.content.startswith(self.bot.command_prefix):
-            return
-        if self.bot.active_games.get(message.channel.id, False):
-            return
-
-        # Queue message for sequential per-channel processing
-        channel_id = message.channel.id
+    def _enqueue(self, channel_id: int, coro_fn):
+        """Push a zero-arg async callable onto the per-channel queue and ensure a worker is running."""
         if channel_id not in self._channel_queues:
             self._channel_queues[channel_id] = asyncio.Queue()
-        await self._channel_queues[channel_id].put(message)
-
+        self._channel_queues[channel_id].put_nowait(coro_fn)
         worker = self._channel_workers.get(channel_id)
         if worker is None or worker.done():
             self._channel_workers[channel_id] = asyncio.create_task(
@@ -212,13 +167,71 @@ class ChatCog(commands.Cog):
     async def _process_queue(self, channel_id: int):
         queue = self._channel_queues[channel_id]
         while not queue.empty():
-            message = await queue.get()
+            coro_fn = await queue.get()
             try:
-                await self._handle_message(message)
-            except Exception as e:
+                await coro_fn()
+            except Exception:
                 logger.exception("queue error in channel %d", channel_id)
             finally:
                 queue.task_done()
+
+    @commands.Cog.listener()
+    async def on_reaction_add(self, reaction, user):
+        if os.getenv("REACTION_RESPONSES", "true").lower() != "true":
+            return
+        if reaction.message.author != self.bot.user or user == self.bot.user:
+            return
+        channel = reaction.message.channel
+        self._enqueue(channel.id, lambda: self._handle_reaction(reaction, user))
+
+    async def _handle_reaction(self, reaction, user):
+        channel = reaction.message.channel
+        channel_behaviour = (
+            self.bot.personality_manager.get_channel_personality(channel.id)
+            or self.bot.chatgpt_behaviour
+        )
+        message_history, history_cutoff_ts = await fetch_message_history(channel, self.bot, return_cutoff=True)
+        if not any(m["role"] == "assistant" for m in message_history):
+            return
+
+        emoji_name = reaction.emoji.name if hasattr(reaction.emoji, "name") else str(reaction.emoji)
+        prompt = f"{user.display_name} reacted to your last message with {emoji_name}. Respond in character."
+
+        rag_docs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
+        rag_msgs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message", before_ts=history_cutoff_ts)
+        rag_context = rag_docs + rag_msgs or None
+
+        message_history.append({"role": "user", "content": prompt})
+        ch_state = self.bot.channel_image_state.get(channel.id, {})
+        tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
+        if ch_state.get("last_transformed") or ch_state.get("last_generated"):
+            tools.append(_TRANSFORM_TOOL)
+
+        try:
+            gpt_response, tool_calls = await generate_gpt_response(
+                message_history, channel_behaviour, rag_context=rag_context, tools=tools,
+                auto_resolve={
+                    "google_search": _execute_search,
+                    "suggest_activity": _make_suggest_executor(channel.id),
+                }
+            )
+            if gpt_response:
+                sent = await channel.send(gpt_response)
+                await async_store_message(channel.id, "assistant", gpt_response, sent.id,
+                                          context_snippet=prompt[:200])
+        except Exception:
+            logger.exception("_handle_reaction failed")
+            await channel.send(format_error_message(Exception("reaction handler error")))
+
+    @commands.Cog.listener()
+    async def on_message(self, message):
+        if message.author == self.bot.user:
+            return
+        if message.content.startswith(self.bot.command_prefix):
+            return
+        if self.bot.active_games.get(message.channel.id, False):
+            return
+        self._enqueue(message.channel.id, lambda: self._handle_message(message))
 
     async def _handle_message(self, message):
         channel_behaviour = (
@@ -261,22 +274,57 @@ class ChatCog(commands.Cog):
                     break
 
         if should_respond:
-            await async_store_message(message.channel.id, "user", message.content, message.id)
+            # Fetch history once — needed for the context snippet before storing
+            # and for building the LLM payload below.
+            message_history, history_cutoff_ts = await fetch_message_history(
+                message.channel, self.bot, exclude_message_id=message.id, return_cutoff=True
+            )
+
+            # Context snippet: last assistant reply anchors retrieved user messages
+            # so the model sees what was being discussed when they were written.
+            last_assistant = next(
+                (m["content"] for m in reversed(message_history) if m["role"] == "assistant"), None
+            )
+            await async_store_message(message.channel.id, "user", message.content, message.id,
+                                      context_snippet=last_assistant)
 
             async with message.channel.typing():
                 query = message.content or ""
 
-                # Fetch direct history first so we know the recency cutoff. RAG
-                # message retrieval is then restricted to entries older than the
-                # oldest in-history message, so it surfaces relevant *older*
-                # context instead of re-sending what history already contains.
-                message_history, history_cutoff_ts = await fetch_message_history(
-                    message.channel, self.bot, exclude_message_id=message.id, return_cutoff=True
-                )
-
                 rag_docs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
                 rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message", before_ts=history_cutoff_ts)
+
+                # Token budget: trim RAG messages (least-relevant last) if the
+                # estimated payload exceeds MAX_CONTEXT_TOKENS. Docs are trimmed
+                # after messages if still over. Estimate: chars / 4 ≈ tokens.
+                max_ctx = os.getenv("MAX_CONTEXT_TOKENS")
+                if max_ctx:
+                    max_ctx = int(max_ctx)
+                    from AIfunc.responses import BASE_SYSTEM_PROMPT
+                    fixed_chars = (
+                        len(BASE_SYSTEM_PROMPT) +
+                        sum(len(m.get("content") or "") for m in message_history) +
+                        len(message.content or "")
+                    )
+                    budget_chars = max_ctx * 4 - fixed_chars
+                    # Trim RAG messages from the tail (lowest relevance after decay sort)
+                    while rag_msgs and sum(len(s) for s in rag_docs + rag_msgs) > budget_chars:
+                        rag_msgs.pop()
+                    # If still over, trim docs from the tail
+                    while rag_docs and sum(len(s) for s in rag_docs + rag_msgs) > budget_chars:
+                        rag_docs.pop()
+
                 rag_context = rag_docs + rag_msgs or None
+
+                est_tokens = (
+                    sum(len(s) for s in (rag_docs + rag_msgs)) +
+                    sum(len(m.get("content") or "") for m in message_history) +
+                    len(message.content or "")
+                ) // 4
+                logger.debug(
+                    "context: %d history msgs, %d rag_msgs, %d rag_docs, ~%d tokens",
+                    len(message_history), len(rag_msgs), len(rag_docs), est_tokens
+                )
 
                 message_history.append({"role": "user", "content": message.content})
 
@@ -321,7 +369,8 @@ class ChatCog(commands.Cog):
                     chunks = split_message(gpt_response)
                     sent = await message.channel.send(chunks[0])
                     await asyncio.sleep(RATE_LIMIT)
-                    await async_store_message(message.channel.id, "assistant", gpt_response, sent.id)
+                    await async_store_message(message.channel.id, "assistant", gpt_response, sent.id,
+                                             context_snippet=message.content[:200])
                     for chunk in chunks[1:]:
                         await message.channel.send(chunk)
                         await asyncio.sleep(RATE_LIMIT)
