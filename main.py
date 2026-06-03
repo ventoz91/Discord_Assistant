@@ -11,7 +11,7 @@ setup_logging()
 intents = discord.Intents.default()
 intents.messages = True
 intents.message_content = True
-bot = bridge.Bot(command_prefix='!', intents=intents)
+bot = bridge.Bot(command_prefix='!', intents=intents, help_command=None)
 
 # Shared state accessible by all Cogs via self.bot
 bot.active_games = {}
