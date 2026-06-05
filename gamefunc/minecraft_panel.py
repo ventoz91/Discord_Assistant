@@ -67,9 +67,9 @@ class MinecraftPanel(discord.ui.View):
     async def start_vanilla(self, button, interaction):
         await interaction.response.defer()
         await self._set('vanilla', 'starting', interaction.message)
-        if not self.server.start('vanilla'):
+        if not await self.server.start('vanilla'):
             await self._set('vanilla', 'offline', interaction.message)
-            await interaction.followup.send('Failed to launch vanilla server — check MINECRAFT_VANILLA_DIR.', ephemeral=True)
+            await interaction.followup.send('Failed to launch vanilla server — check SSH/Docker config.', ephemeral=True)
             return
         ready = await self.server.wait_until_ready('vanilla')
         await self._set('vanilla', 'online' if ready else 'offline', interaction.message)
@@ -91,7 +91,7 @@ class MinecraftPanel(discord.ui.View):
         await self.server.stop('vanilla')
         await self.server.wait_until_stopped('vanilla')
         await self._set('vanilla', 'starting', interaction.message)
-        self.server.start('vanilla')
+        await self.server.start('vanilla')
         ready = await self.server.wait_until_ready('vanilla')
         await self._set('vanilla', 'online' if ready else 'offline', interaction.message)
 
@@ -111,7 +111,7 @@ class MinecraftPanel(discord.ui.View):
     async def start_modded(self, button, interaction):
         await interaction.response.defer()
         await self._set('modded', 'starting', interaction.message)
-        if not self.server.start('modded'):
+        if not await self.server.start('modded'):
             await self._set('modded', 'offline', interaction.message)
             await interaction.followup.send('Failed to launch modded server — check MINECRAFT_MODDED_DIR.', ephemeral=True)
             return
@@ -135,7 +135,7 @@ class MinecraftPanel(discord.ui.View):
         await self.server.stop('modded')
         await self.server.wait_until_stopped('modded')
         await self._set('modded', 'starting', interaction.message)
-        self.server.start('modded')
+        await self.server.start('modded')
         ready = await self.server.wait_until_ready('modded')
         await self._set('modded', 'online' if ready else 'offline', interaction.message)
 

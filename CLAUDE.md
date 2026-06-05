@@ -60,9 +60,17 @@ All configuration lives in **`.env`** at the project root. All values are read a
 
 **Game Servers**
 - `MINECRAFT_VANILLA_DIR` / `MINECRAFT_VANILLA_RCON_HOST` / `MINECRAFT_VANILLA_RCON_PORT` / `MINECRAFT_VANILLA_RCON_PASSWORD`
+- `MINECRAFT_VANILLA_SSH_HOST` — remote host for vanilla start via SSH+Docker (required for start to work)
+- `MINECRAFT_VANILLA_SSH_USER` — optional SSH username; defaults to current user
+- `MINECRAFT_VANILLA_COMPOSE_DIR` — path to docker-compose on remote host (default: `/home/data`)
 - `MINECRAFT_MODDED_DIR` / `MINECRAFT_MODDED_RCON_HOST` / `MINECRAFT_MODDED_RCON_PORT` / `MINECRAFT_MODDED_RCON_PASSWORD`
 - `VALHEIM_SERVER_NAME` / `VALHEIM_WORLD_NAME` / `VALHEIM_PASSWORD` / `VALHEIM_PORT` / `VALHEIM_STEAM_DIR`
 - `ENSHROUDED_EXE`
+- `SATISFACTORY_SSH_HOST` — required; remote host to SSH into for start/stop
+- `SATISFACTORY_SSH_USER` — optional SSH username
+- `SATISFACTORY_COMPOSE_DIR` — path to docker-compose on remote host (default: `/home/data`)
+- `SATISFACTORY_API_HOST` — host for HTTPS API calls (default: `SATISFACTORY_SSH_HOST`)
+- `SATISFACTORY_API_PORT` — API port (default: `7777`)
 
 **Personalities (legacy — migration only)**
 - `PERSONALITY=<descriptor>` — Read once on first run to populate `data/personalities.json`. After migration, ignored.
@@ -199,6 +207,8 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
 | `!snake` | `/snake` | Play Snake |
 | `!adventure` | `/adventure` | ASCII dungeon (QUD-style grid, 8-directional) |
 | `!minecraft` | `/minecraft` | Minecraft server management panel |
+| `!satisfactory` | `/satisfactory` | Satisfactory server management panel (SSH+Docker start/stop, HTTPS API status) |
+| `!status` | `/status` | Live embed showing all game servers at a glance |
 | `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
 | `!commands` / `!help` | `/commands` / `/help` | Show all bot commands (formatted text list) |

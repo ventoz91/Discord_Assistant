@@ -16,13 +16,13 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Personality system** — short character descriptors stored in `data/personalities.json`; switch at runtime, pin per-channel, persist across restarts
 - **Conversation simulation** — simulate a debate between two personalities on any topic via `!simulate` / `/simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) — all panel-based
-- **Game server management** — Minecraft (vanilla & modded) live panel with RCON; Valheim and Enshrouded start/stop commands
+- **Game server management** — Minecraft (vanilla via SSH+Docker, modded local) and Satisfactory live panels; Satisfactory status pulled from the dedicated server HTTPS API (players, tech tier, play time); Valheim and Enshrouded start/stop commands; `!status` / `/status` shows all servers at a glance in one embed
 - **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
 
 ## Requirements
 
 - Python 3.10+
-- kitty terminal — required on Linux for Minecraft server start (launches the server process in a new terminal window); not needed for any other feature
+- kitty terminal — required on Linux for **modded** Minecraft server start (launches the server process in a new terminal window); not needed for vanilla (SSH+Docker) or any other feature
 
 ```bash
 python -m venv .venv
@@ -192,15 +192,32 @@ TAVILY_API_KEY=tvly-your_tavily_key
 # Minecraft Servers
 # ─────────────────────────────────────────────
 
-MINECRAFT_VANILLA_DIR=/home/user/minecraft/vanilla
-MINECRAFT_VANILLA_RCON_HOST=localhost
+MINECRAFT_VANILLA_SSH_HOST=192.168.0.x        # remote host — start via SSH+Docker
+MINECRAFT_VANILLA_SSH_USER=admin             # optional SSH user
+MINECRAFT_VANILLA_COMPOSE_DIR=/home/data     # path to docker-compose on remote host
+MINECRAFT_VANILLA_RCON_HOST=192.168.0.x      # host for RCON status checks
 MINECRAFT_VANILLA_RCON_PORT=25575
 MINECRAFT_VANILLA_RCON_PASSWORD=your_rcon_password
 
-MINECRAFT_MODDED_DIR=/home/user/minecraft/modded
+MINECRAFT_MODDED_DIR=/home/user/minecraft/modded   # local path for kitty launch
 MINECRAFT_MODDED_RCON_HOST=localhost
 MINECRAFT_MODDED_RCON_PORT=25575
 MINECRAFT_MODDED_RCON_PASSWORD=your_rcon_password
+
+
+# ─────────────────────────────────────────────
+# Satisfactory Server
+# ─────────────────────────────────────────────
+
+SATISFACTORY_SSH_HOST=192.168.0.x            # required — remote host for start/stop
+SATISFACTORY_SSH_USER=admin                  # optional SSH user
+SATISFACTORY_COMPOSE_DIR=/home/data          # path to docker-compose on remote host
+# SATISFACTORY_API_HOST=                     # optional — defaults to SSH host
+SATISFACTORY_API_PORT=7777                   # HTTPS API port (default: 7777)
+
+# Which servers appear in !status / /status (comma-separated)
+# Valid values: minecraft_vanilla, minecraft_modded, satisfactory
+STATUS_SERVERS=minecraft_vanilla,minecraft_modded,satisfactory
 
 
 # ─────────────────────────────────────────────
@@ -284,7 +301,9 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 
 | Prefix | Slash | Description |
 |---|---|---|
+| `!status` | `/status` | Live status embed for all game servers |
 | `!minecraft` | `/minecraft` | Open the Minecraft server panel |
+| `!satisfactory` | `/satisfactory` | Open the Satisfactory server panel |
 | `!start_valheim` | `/valheim start` | Start the Valheim dedicated server |
 | `!stop_valheim` | `/valheim stop` | Stop the Valheim dedicated server |
 | `!valheim_status` | `/valheim status` | Check Valheim server status |
@@ -337,7 +356,13 @@ ragfunc/
 gamefunc/
   adventure.py / adventure_panel.py  — 55×23 ASCII dungeon, viewport renderer, D-pad UI
   snake_panel.py              — Snake game, D-pad buttons, score tracking
-  minecraft.py / minecraft_panel.py  — thread-safe RCON, live status panel
+  minecraft.py / minecraft_panel.py  — thread-safe RCON; vanilla starts via SSH+Docker,
+                                modded via local kitty; live status panel
+  satisfactory.py             — SSH+Docker start/stop; HTTPS API state (players, tier,
+                                play time, tick rate); token caching with auto-refresh
+  satisfactory_panel.py       — Satisfactory management panel (Start/Stop/Restart/Refresh)
+  status_panel.py             — read-only all-servers status embed; parallel queries;
+                                configurable via STATUS_SERVERS env var
   valheim.py                  — ValheimServer, EnshroudedServer (Windows-only)
   tictactoe.py                — Tic-Tac-Toe logic
 funfunc/

@@ -1,6 +1,8 @@
 import discord
 from discord.ext import commands, bridge
 from gamefunc.minecraft_panel import MinecraftPanel
+from gamefunc.satisfactory_panel import SatisfactoryPanel
+from gamefunc.status_panel import StatusPanel
 from gamefunc.valheim import ValheimServer, EnshroudedServer
 
 
@@ -18,6 +20,24 @@ class ServersCog(commands.Cog):
     @bridge.bridge_command(description="Open the Minecraft server management panel")
     async def minecraft(self, ctx):
         panel = MinecraftPanel()
+        msg = await ctx.channel.send(embed=panel.build_embed(), view=panel)
+        await panel.refresh_states(msg)
+        if hasattr(ctx, 'interaction') and ctx.interaction:
+            await ctx.respond("Panel opened above.", ephemeral=True)
+
+    # ── Status overview ──────────────────────────────────────────────────────
+
+    @bridge.bridge_command(description="Show live status for all game servers")
+    async def status(self, ctx):
+        panel = StatusPanel()
+        embed = await panel.build_embed()
+        await ctx.respond(embed=embed, view=panel)
+
+    # ── Satisfactory ─────────────────────────────────────────────────────────
+
+    @bridge.bridge_command(description="Open the Satisfactory server management panel")
+    async def satisfactory(self, ctx):
+        panel = SatisfactoryPanel()
         msg = await ctx.channel.send(embed=panel.build_embed(), view=panel)
         await panel.refresh_states(msg)
         if hasattr(ctx, 'interaction') and ctx.interaction:

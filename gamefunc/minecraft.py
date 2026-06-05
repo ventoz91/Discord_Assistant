@@ -71,13 +71,30 @@ class MinecraftServer:
             'modded':  os.getenv('MINECRAFT_MODDED_DIR', ''),
         }
 
-    def start(self, server_type: str) -> bool:
-        server_dir = self.server_dirs.get(server_type, '')
-        if not server_dir:
-            return False
-        cmd = f'kitty --hold -d {server_dir} -e bash -c "./newrun.sh"'
-        subprocess.Popen(shlex.split(cmd))
-        return True
+    async def start(self, server_type: str) -> bool:
+        if server_type == 'vanilla':
+            ssh_host = os.getenv('MINECRAFT_VANILLA_SSH_HOST', '')
+            if not ssh_host:
+                return False
+            ssh_user = os.getenv('MINECRAFT_VANILLA_SSH_USER', '')
+            compose_dir = os.getenv('MINECRAFT_VANILLA_COMPOSE_DIR', '/home/data')
+            target = f'{ssh_user}@{ssh_host}' if ssh_user else ssh_host
+            cmd = ['ssh', '-o', 'BatchMode=yes', target,
+                   f'cd {shlex.quote(compose_dir)} && docker compose up -d minecraft']
+            try:
+                await asyncio.to_thread(
+                    subprocess.run, cmd, check=True, timeout=30, capture_output=True
+                )
+                return True
+            except Exception:
+                return False
+        else:
+            server_dir = self.server_dirs.get(server_type, '')
+            if not server_dir:
+                return False
+            local_cmd = f'kitty --hold -d {server_dir} -e bash -c "./newrun.sh"'
+            subprocess.Popen(shlex.split(local_cmd))
+            return True
 
     async def _rcon(self, server_type: str, command: str) -> str:
         info = self.rcon_settings[server_type]

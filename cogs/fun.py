@@ -42,7 +42,9 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!adventure  ·  /adventure",  "ASCII dungeon, 8-directional movement"),
     ],
     "🖥️  SERVERS": [
+        ("!status  ·  /status",                     "Live status for all game servers"),
         ("!minecraft  ·  /minecraft",               "Minecraft server panel"),
+        ("!satisfactory  ·  /satisfactory",         "Satisfactory server panel"),
         ("!start_valheim  ·  /valheim start",       "Start Valheim"),
         ("!stop_valheim  ·  /valheim stop",         "Stop Valheim"),
         ("!valheim_status  ·  /valheim status",     "Valheim status"),
