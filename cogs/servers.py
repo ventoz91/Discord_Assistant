@@ -21,7 +21,7 @@ class ServersCog(commands.Cog):
     async def minecraft(self, ctx):
         panel = MinecraftPanel()
         msg = await ctx.channel.send(embed=panel.build_embed(), view=panel)
-        await panel.refresh_states(msg)
+        await panel.start_auto_refresh(msg)
         if hasattr(ctx, 'interaction') and ctx.interaction:
             await ctx.respond("Panel opened above.", ephemeral=True)
 
@@ -29,6 +29,7 @@ class ServersCog(commands.Cog):
 
     @bridge.bridge_command(description="Show live status for all game servers")
     async def status(self, ctx):
+        await ctx.defer()
         panel = StatusPanel()
         embed = await panel.build_embed()
         await ctx.respond(embed=embed, view=panel)

@@ -1,13 +1,46 @@
 import asyncio
 import os
+import re
 import discord
 from gamefunc.minecraft import MinecraftServer
 from gamefunc.satisfactory import SatisfactoryServer
 
+# (hostname_env_var, default_display_name, internal_key)
+_SERVERS = [
+    ('MINECRAFT_VANILLA_HOSTNAME', 'Minecraft Vanilla', 'minecraft_vanilla'),
+    ('MINECRAFT_MODDED_HOSTNAME',  'Minecraft Modded',  'minecraft_modded'),
+    ('SATISFACTORY_HOSTNAME',      'Satisfactory',      'satisfactory'),
+]
 
-def _enabled() -> set[str]:
-    val = os.getenv('STATUS_SERVERS', 'minecraft_vanilla,minecraft_modded,satisfactory')
-    return {s.strip() for s in val.split(',') if s.strip()}
+
+def _active_servers() -> list[tuple[str, str]]:
+    """Returns (display_name, internal_key) for each server listed in STATUS_SERVERS.
+
+    STATUS_SERVERS values are matched against the *_HOSTNAME env vars (case-insensitive).
+    Internal keys (minecraft_vanilla, minecraft_modded, satisfactory) also accepted.
+    If STATUS_SERVERS is unset, all configured servers are shown.
+    """
+    name_map = {}
+    for env_var, default, key in _SERVERS:
+        display = os.getenv(env_var, default)
+        name_map[display.lower()] = (display, key)
+        name_map[key] = (display, key)
+
+    status_val = os.getenv('STATUS_SERVERS', '').strip()
+    if not status_val:
+        return [(os.getenv(ev, d), k) for ev, d, k in _SERVERS]
+
+    result = []
+    for entry in status_val.split(','):
+        match = name_map.get(entry.strip().lower())
+        if match:
+            result.append(match)
+    return result
+
+
+def _parse_mc_players(response: str) -> tuple[int, int] | None:
+    m = re.search(r'(\d+) of a max of (\d+)', response)
+    return (int(m.group(1)), int(m.group(2))) if m else None
 
 
 def _fmt_duration(seconds: int) -> str:
@@ -27,44 +60,36 @@ class StatusPanel(discord.ui.View):
         self._sf = SatisfactoryServer()
 
     async def build_embed(self) -> discord.Embed:
-        enabled = _enabled()
+        active = _active_servers()
 
-        tasks = {}
-        if 'minecraft_vanilla' in enabled:
-            tasks['minecraft_vanilla'] = self._mc.is_running('vanilla')
-        if 'minecraft_modded' in enabled:
-            tasks['minecraft_modded'] = self._mc.is_running('modded')
-        if 'satisfactory' in enabled:
-            tasks['satisfactory'] = self._sf.get_state()
+        _coros = {
+            'minecraft_vanilla': lambda: self._mc.players('vanilla'),
+            'minecraft_modded':  lambda: self._mc.players('modded'),
+            'satisfactory':      lambda: self._sf.get_state(),
+        }
 
-        results = dict(zip(tasks.keys(), await asyncio.gather(*tasks.values())))
+        displays = [d for d, _ in active]
+        keys     = [k for _, k in active]
+        results  = await asyncio.gather(*(_coros[k]() for k in keys))
 
         embed = discord.Embed(title='🖥️ Game Servers', color=0x5865F2)
 
-        if 'minecraft_vanilla' in results:
-            embed.add_field(
-                name='Minecraft Vanilla',
-                value='🟢 Online' if results['minecraft_vanilla'] else '🔴 Offline',
-                inline=True,
-            )
-        if 'minecraft_modded' in results:
-            embed.add_field(
-                name='Minecraft Modded',
-                value='🟢 Online' if results['minecraft_modded'] else '🔴 Offline',
-                inline=True,
-            )
-        if 'satisfactory' in results:
-            sf_state = results['satisfactory']
-            if sf_state is None:
-                sf_value = '🔴 Offline'
-            elif not sf_state['is_game_running']:
-                sf_value = '🟡 Online — no save loaded'
+        for display, key, result in zip(displays, keys, results):
+            if key in ('minecraft_vanilla', 'minecraft_modded'):
+                parsed = _parse_mc_players(result)
+                value = f"🟢 Online — {parsed[0]}/{parsed[1]} players" if parsed else '🔴 Offline'
+                embed.add_field(name=display, value=value, inline=True)
             else:
-                sf_value = (
-                    f"🟢 Online — {sf_state['num_players']}/{sf_state['player_limit']} players\n"
-                    f"Tier {sf_state['tech_tier']} · {_fmt_duration(sf_state['total_duration'])}"
-                )
-            embed.add_field(name='Satisfactory', value=sf_value, inline=False)
+                if result is None:
+                    value = '🔴 Offline'
+                elif not result['is_game_running']:
+                    value = '🟡 Online — no save loaded'
+                else:
+                    value = (
+                        f"🟢 Online — {result['num_players']}/{result['player_limit']} players\n"
+                        f"Tier {result['tech_tier']} · {_fmt_duration(result['total_duration'])}"
+                    )
+                embed.add_field(name=display, value=value, inline=False)
 
         return embed
 

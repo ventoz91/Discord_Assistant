@@ -198,11 +198,13 @@ MINECRAFT_VANILLA_COMPOSE_DIR=/home/data     # path to docker-compose on remote 
 MINECRAFT_VANILLA_RCON_HOST=192.168.0.x      # host for RCON status checks
 MINECRAFT_VANILLA_RCON_PORT=25575
 MINECRAFT_VANILLA_RCON_PASSWORD=your_rcon_password
+MINECRAFT_VANILLA_CONNECT_URL=play.example.com   # shown as "Connect: ..." in the panel (free text)
 
 MINECRAFT_MODDED_DIR=/home/user/minecraft/modded   # local path for kitty launch
 MINECRAFT_MODDED_RCON_HOST=localhost
 MINECRAFT_MODDED_RCON_PORT=25575
 MINECRAFT_MODDED_RCON_PASSWORD=your_rcon_password
+MINECRAFT_MODDED_CONNECT_URL=modded.example.com  # shown as "Connect: ..." in the panel (free text)
 
 
 # ─────────────────────────────────────────────
@@ -214,6 +216,7 @@ SATISFACTORY_SSH_USER=admin                  # optional SSH user
 SATISFACTORY_COMPOSE_DIR=/home/data          # path to docker-compose on remote host
 # SATISFACTORY_API_HOST=                     # optional — defaults to SSH host
 SATISFACTORY_API_PORT=7777                   # HTTPS API port (default: 7777)
+SATISFACTORY_CONNECT_URL=satisfactory.example.com:7777  # shown as "Connect" field in the panel (free text)
 
 # Which servers appear in !status / /status (comma-separated)
 # Valid values: minecraft_vanilla, minecraft_modded, satisfactory

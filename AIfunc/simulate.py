@@ -22,12 +22,21 @@ class ConversationSimulator:
         self.client = AsyncOpenAI(api_key=openai_api_key)
         self.model_chat = model_chat
 
+    async def _get_name(self, descriptor: str) -> str:
+        resp = await self.client.chat.completions.create(
+            model=self.model_chat,
+            messages=[{"role": "user", "content": f"Reply with only the character's name from this description, nothing else: {descriptor}"}],
+            max_completion_tokens=15,
+            temperature=0,
+        )
+        return resp.choices[0].message.content.strip()
+
     async def simulate_conversation(self, topic: str, personality_indices: list, turns: int = 6):
         """Async generator — yields (label, text) tuples as each piece is ready.
 
         Labels: 'intro', speaker name, 'judge', 'error'
         """
-        personalities = personality_manager.read_personalities_from_file()
+        personalities = personality_manager.personalities
         if len(personalities) < 2:
             yield ("error", "Not enough personalities loaded to run a simulation.")
             return
@@ -43,8 +52,8 @@ class ConversationSimulator:
 
         # Fetch both names in parallel
         name1, name2 = await asyncio.gather(
-            personality_manager.get_personality_name(self.model_chat, p1),
-            personality_manager.get_personality_name(self.model_chat, p2),
+            self._get_name(p1),
+            self._get_name(p2),
         )
 
         yield ("intro", f"🎭 **{name1}** vs **{name2}**\nTopic: *{topic}*")
@@ -61,7 +70,7 @@ class ConversationSimulator:
             messages = [{"role": "system", "content": system_content}]
             for speaker, text in log:
                 role = "assistant" if speaker == current_name else "user"
-                messages.append({"role": role, "content": f"{speaker}: {text}"})
+                messages.append({"role": role, "content": text})
 
             if i == 0:
                 messages.append({"role": "user", "content": f"Open the debate on: {topic}"})

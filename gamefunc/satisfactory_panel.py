@@ -1,4 +1,5 @@
 import discord
+import os
 from gamefunc.satisfactory import SatisfactoryServer
 
 
@@ -49,6 +50,9 @@ class SatisfactoryPanel(discord.ui.View):
                 embed.add_field(name='Tick Rate', value=f"{gs['tick_rate']} TPS", inline=True)
                 if gs['is_paused']:
                     embed.add_field(name='', value='⚠️ Game is paused', inline=False)
+        connect_url = os.getenv('SATISFACTORY_CONNECT_URL', '').strip()
+        if connect_url:
+            embed.add_field(name='Connect', value=connect_url, inline=False)
         return embed
 
     def _sync_buttons(self):

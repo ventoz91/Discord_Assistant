@@ -132,6 +132,63 @@ class RAGCog(commands.Cog):
             logger.exception("summarize failed")
             await ctx.respond(f"Error generating summary: {e}")
 
+    # ── !missed / /missed ─────────────────────────────────────────────────────
+
+    @bridge.bridge_command(name="missed", description="Summarize what happened since you were last here")
+    async def missed(self, ctx):
+        await ctx.defer()
+        try:
+            # Find when the user last spoke in this channel
+            invoked_at = getattr(getattr(ctx, 'message', None), 'created_at', None)
+            raw = [m async for m in ctx.channel.history(limit=500, oldest_first=False)]
+
+            cutoff = None
+            for msg in raw:
+                if msg.author.id == ctx.author.id:
+                    if invoked_at and msg.created_at >= invoked_at:
+                        continue
+                    cutoff = msg
+                    break
+
+            if cutoff:
+                since_msgs = [m for m in raw if m.created_at > cutoff.created_at
+                              and not (invoked_at and m.created_at >= invoked_at and m.author.id == ctx.author.id)]
+                since_label = f"<t:{int(cutoff.created_at.timestamp())}:t>"
+            else:
+                since_msgs = raw
+                since_label = "the start of recorded history here"
+
+            if not since_msgs:
+                await ctx.respond("Nothing happened since you were last here.")
+                return
+
+            lines = []
+            for msg in reversed(since_msgs[:100]):
+                if not msg.content:
+                    continue
+                name = "Ralph" if msg.author == self.bot.user else msg.author.display_name
+                lines.append(f"{name}: {msg.content[:300]}")
+
+            if not lines:
+                await ctx.respond("Nothing to catch you up on.")
+                return
+
+            summary = await generate_gpt_response(
+                [{"role": "user", "content": (
+                    f"Summarize for {ctx.author.display_name} what happened in this Discord channel "
+                    f"since {since_label}. Be in character. Be concise and punchy — highlight "
+                    f"anything interesting, funny, or important.\n\nCHANNEL LOG:\n" + "\n".join(lines)
+                )}],
+                self.bot.chatgpt_behaviour,
+            )
+            chunks = split_message(f"**What you missed:**\n{summary}")
+            await ctx.respond(chunks[0])
+            for chunk in chunks[1:]:
+                await ctx.channel.send(chunk)
+        except Exception as e:
+            logger.exception("missed failed")
+            await ctx.respond(f"Error generating summary: {e}")
+
     # ── !clearall (prefix only — too destructive for accidental slash) ────────
 
     @commands.command(name="clearall")

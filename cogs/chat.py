@@ -14,8 +14,16 @@ from ragfunc.memory import async_store_message, async_retrieve, async_store_docu
 from funfunc.web_search import web_search
 from chatbotfunc.profiles import get_user_context, extract_and_update
 from chatbotfunc.summarizer import summarizer_loop
+from chatbotfunc.debates import get_debate_context, mark_surfaced, debate_scanner_loop
+from gamefunc.minecraft_events import MinecraftEventWatcher
+from gamefunc.satisfactory_monitor import SatisfactoryMonitor
 
 RATE_LIMIT = 0.5
+
+
+def _channel_id(env_var: str) -> int | None:
+    v = os.getenv(env_var, '').strip()
+    return int(v) if v else None
 
 _GENERATE_TOOL = {
     "type": "function",
@@ -155,6 +163,17 @@ class ChatCog(commands.Cog):
     async def on_ready(self):
         logger.info("Logged in as %s | personality: %s", self.bot.user.name, self.bot.chatgpt_behaviour)
         asyncio.create_task(summarizer_loop(os.getenv("MODEL_CHAT", "")))
+        asyncio.create_task(debate_scanner_loop(self.bot, os.getenv("MODEL_CHAT", "")))
+
+        api_key = os.getenv("OPENAI_API_KEY", "")
+        mc_channel = _channel_id('MINECRAFT_EVENTS_CHANNEL_ID')
+        if mc_channel:
+            self._mc_watcher = MinecraftEventWatcher(api_key)
+            self._mc_watcher.start(self.bot, mc_channel)
+        sf_channel = _channel_id('SATISFACTORY_EVENTS_CHANNEL_ID')
+        if sf_channel:
+            self._sf_monitor = SatisfactoryMonitor(api_key)
+            self._sf_monitor.start(self.bot, sf_channel)
 
     def _enqueue(self, channel_id: int, coro_fn):
         """Push a zero-arg async callable onto the per-channel queue and ensure a worker is running."""
@@ -206,6 +225,7 @@ class ChatCog(commands.Cog):
 
         message_history.append({"role": "user", "content": prompt})
         user_ctx = await asyncio.to_thread(get_user_context, user.id, user.display_name)
+        debate_ctx = await asyncio.to_thread(get_debate_context, channel.id)
         ch_state = self.bot.channel_image_state.get(channel.id, {})
         tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
         if ch_state.get("last_transformed") or ch_state.get("last_generated"):
@@ -214,7 +234,7 @@ class ChatCog(commands.Cog):
         try:
             gpt_response, tool_calls = await generate_gpt_response(
                 message_history, channel_behaviour, rag_context=rag_context, tools=tools,
-                user_context=user_ctx,
+                user_context=user_ctx, debate_context=debate_ctx,
                 auto_resolve={
                     "google_search": _execute_search,
                     "suggest_activity": _make_suggest_executor(channel.id),
@@ -224,6 +244,7 @@ class ChatCog(commands.Cog):
                 sent = await channel.send(gpt_response)
                 await async_store_message(channel.id, "assistant", gpt_response, sent.id,
                                           context_snippet=prompt[:200])
+                await asyncio.to_thread(mark_surfaced, channel.id, gpt_response)
         except Exception:
             logger.exception("_handle_reaction failed")
             await channel.send(format_error_message(Exception("reaction handler error")))
@@ -336,6 +357,7 @@ class ChatCog(commands.Cog):
                 user_ctx = await asyncio.to_thread(
                     get_user_context, message.author.id, message.author.display_name
                 )
+                debate_ctx = await asyncio.to_thread(get_debate_context, message.channel.id)
 
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})
                 tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
@@ -344,7 +366,7 @@ class ChatCog(commands.Cog):
 
                 gpt_response, tool_calls = await generate_gpt_response(
                     message_history, channel_behaviour, rag_context=rag_context, tools=tools,
-                    user_context=user_ctx,
+                    user_context=user_ctx, debate_context=debate_ctx,
                     auto_resolve={
                         "google_search": _execute_search,
                         "suggest_activity": _make_suggest_executor(message.channel.id),
@@ -381,6 +403,7 @@ class ChatCog(commands.Cog):
                     await asyncio.sleep(RATE_LIMIT)
                     await async_store_message(message.channel.id, "assistant", gpt_response, sent.id,
                                              context_snippet=message.content[:200])
+                    await asyncio.to_thread(mark_surfaced, message.channel.id, gpt_response)
                     for chunk in chunks[1:]:
                         await message.channel.send(chunk)
                         await asyncio.sleep(RATE_LIMIT)

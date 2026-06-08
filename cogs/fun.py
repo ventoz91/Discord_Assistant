@@ -25,6 +25,7 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
     "🧠  MEMORY": [
         ("!learn [text]  ·  /learn",   "Store text or a file in memory"),
         ("!memory  ·  /memory",        "Memory stats for this channel"),
+        ("!missed  ·  /missed",        "Catch up on what happened since you were last here"),
         ("!summarize  ·  /summarize",  "TL;DR of recent conversation"),
         ("!cleardocs  ·  /cleardocs",  "Remove stored docs (keeps messages)"),
         ("!clearall",                  "Wipe all memory — requires Manage Messages"),
@@ -120,13 +121,13 @@ class FunCog(commands.Cog):
         topic: discord.Option(str, "Topic for the debate"),
         p1: discord.Option(int, "First personality index (see /personality list)", required=False) = None,
         p2: discord.Option(int, "Second personality index", required=False) = None,
-        turns: discord.Option(int, "Number of turns (2–12, default 6)", required=False) = 6):
+        turns: discord.Option(int, "Number of turns (2–12, default 4)", required=False) = 4):
         await ctx.defer()
         turns = max(2, min(turns, 12))
         personality_indices = [i for i in [p1, p2] if i is not None]
         await self._simulate_impl(ctx, topic, personality_indices, turns)
 
-    async def _simulate_impl(self, ctx, topic: str, personality_indices: list, turns: int = 6):
+    async def _simulate_impl(self, ctx, topic: str, personality_indices: list, turns: int = 4):
         api_key = os.getenv("OPENAI_API_KEY")
         simulator = ConversationSimulator(api_key, os.getenv("MODEL_CHAT"))
         first = True

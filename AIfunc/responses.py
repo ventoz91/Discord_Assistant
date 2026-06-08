@@ -29,7 +29,7 @@ UNCERTAINTY: If you don't know something, say so in character rather than fabric
 Personality: {personality}"""
 
 
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None, user_context=None):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None, user_context=None, debate_context=None):
     # auto_resolve: dict[tool_name, async callable(args_dict) -> str]
     # Tools listed here are executed internally; only remaining tool calls are returned to the caller.
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS", "500"))
@@ -38,6 +38,11 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
     if user_context:
         system_content += f"\n\nUSER PROFILE:\n{user_context}"
+    if debate_context:
+        system_content += (
+            "\n\nONGOING THREADS YOU REMEMBER (bring one up naturally if it genuinely fits — "
+            f"never force it):\n{debate_context}"
+        )
     if rag_context:
         system_content += "\n\nRELEVANT CONTEXT FROM MEMORY:\n" + "\n---\n".join(rag_context)
     messages = [{"role": "system", "content": system_content}] + message_history

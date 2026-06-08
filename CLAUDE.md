@@ -43,6 +43,17 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `USER_PROFILE_EXTRACT_TOKENS` — Max tokens for the extraction response (default: 200).
 - `USER_PROFILE_MSG_CHARS` — Max chars of user/bot message fed to extraction (default: 500).
 
+**Debates & Running Jokes**
+- `DEBATE_TRACKING` — `true` / `false` (default: `true`). Entries stored in `data/debates.json` (gitignored).
+- `DEBATE_SCAN_INTERVAL_HOURS` — How often the background scanner reviews recent channel history (default: 12).
+- `DEBATE_SCAN_MIN_MESSAGES` — Minimum new messages since the last scan to bother running extraction (default: 20).
+- `DEBATE_SCAN_MAX_INPUT_CHARS` — Max chars of recent chat fed to the extraction LLM call (default: 12000).
+- `DEBATE_SCAN_MAX_TOKENS` — Max tokens for the extraction response (default: 400).
+- `DEBATE_MAX_PER_CHANNEL` — Cap on tracked entries per channel; oldest resolved (then oldest unresolved) dropped first (default: 15).
+- `DEBATE_INJECT_MAX` — Max entries injected into the system prompt per call (default: 3).
+- `DEBATE_SURFACE_COOLDOWN_DAYS` — Minimum days between surfacing the same entry, so Ralph doesn't repeat callbacks (default: 3).
+- `DEBATE_MODEL` — Model for extraction (default: `MODEL_CHAT`).
+
 **Auto-Summarization**
 - `SUMMARY_ENABLED` — `true` / `false` (default: `true`)
 - `SUMMARY_INTERVAL_HOURS` — Scan interval in hours (default: 24)
@@ -59,6 +70,8 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `TAVILY_API_KEY` — Tavily API key for AI web search tool in `chat.py`
 
 **Game Servers**
+- `MINECRAFT_VANILLA_CONNECT_URL` / `MINECRAFT_MODDED_CONNECT_URL` — free-text connection addresses shown as "Connect: ..." in the Minecraft panel's Vanilla/Modded fields (e.g. a domain, IP:port, whatever players should type in)
+- `SATISFACTORY_CONNECT_URL` — free-text connection address shown as a "Connect" field in the Satisfactory panel
 - `MINECRAFT_VANILLA_DIR` / `MINECRAFT_VANILLA_RCON_HOST` / `MINECRAFT_VANILLA_RCON_PORT` / `MINECRAFT_VANILLA_RCON_PASSWORD`
 - `MINECRAFT_VANILLA_SSH_HOST` — remote host for vanilla start via SSH+Docker (required for start to work)
 - `MINECRAFT_VANILLA_SSH_USER` — optional SSH username; defaults to current user
@@ -110,6 +123,8 @@ Per-channel ChromaDB collections in `data/chroma/`. Singleton client (`_get_clie
 
 **User profiles:** `get_user_context()` reads `data/user_profiles.json` and returns a formatted string of the user's most recent facts. Injected as `USER PROFILE:` section in the system prompt before RAG context. After each text exchange, `extract_and_update()` fires as a background `asyncio.create_task` to extract and merge new facts without blocking the response.
 
+**Debates & running jokes:** `debate_scanner_loop` (started in `on_ready`) wakes every `DEBATE_SCAN_INTERVAL_HOURS`, pulls each channel's history since the last scan straight from Discord, and sends it to an LLM that returns `new`/`update`/`resolve` actions against the tracked list in `data/debates.json`. `get_debate_context()` formats unresolved entries that haven't been surfaced within `DEBATE_SURFACE_COOLDOWN_DAYS` and injects them as an `ONGOING THREADS YOU REMEMBER:` section (after `USER PROFILE`, before RAG context) — the model is told to bring one up only if it genuinely fits, never to force it. After a response is sent, `mark_surfaced()` fuzzy-matches topic words against the response text and stamps `last_surfaced_ts` to prevent immediate repeats.
+
 **Supported file types:** `.txt .py .md .js .ts .jsx .tsx .json .csv .yaml .yml .html .css .sh .toml .ini .cfg .pdf`
 
 ## Architecture Overview
@@ -135,13 +150,14 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 
 ### Support Modules
 
-- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT`; `generate_gpt_response(message_history, personality, rag_context, user_context, tools, auto_resolve)` — returns `(content, tool_calls)` tuple when tools provided; `analyze_image(base64, instructions, history, personality, user_context)`; `generate_image()`; `transform_image()`. `user_context` injected as `USER PROFILE:` section before RAG context in system prompt.
+- **`AIfunc/responses.py`** — `BASE_SYSTEM_PROMPT`; `generate_gpt_response(message_history, personality, rag_context, user_context, debate_context, tools, auto_resolve)` — returns `(content, tool_calls)` tuple when tools provided; `analyze_image(base64, instructions, history, personality, user_context)`; `generate_image()`; `transform_image()`. `user_context` injected as `USER PROFILE:` section, `debate_context` as `ONGOING THREADS YOU REMEMBER:` section, both before RAG context in system prompt.
 - **`AIfunc/simulate.py`** — `ConversationSimulator`.
 - **`chatbotfunc/logger.py`** — `setup_logging()`: console at INFO, `RotatingFileHandler` to `data/bot.log` (5 MB × 3 backups) at `LOG_LEVEL`.
 - **`chatbotfunc/utils.py`** — `fetch_message_history(channel, bot, exclude_message_id, return_cutoff)` — optionally excludes one message ID and returns the oldest in-window timestamp as a recency cutoff; `async_chat_completion()`; `split_message()`; `format_error_message()`; `encode_discord_image()` (async, aiohttp); `SUPPORTED_DOC_EXTENSIONS` frozenset.
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager(env_path)`: `data/personalities.json` is the source of truth; auto-migrates from `.env` on first run; `get_active()` / `set_active()`; `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` with in-memory pin cache (invalidated on write).
 - **`chatbotfunc/profiles.py`** — `get_user_context(user_id, display_name) -> str | None`: reads `data/user_profiles.json`, returns formatted fact string for system prompt injection. `extract_and_update(user_id, display_name, user_msg, bot_msg, model)`: async background task; sends extraction prompt to LLM, parses JSON array of new facts, merges into profile file.
 - **`chatbotfunc/summarizer.py`** — `summarizer_loop(model)`: background coroutine; `summarize_channel(channel_id, model)`: fetches expiring messages, applies skip/force logic using `data/summarizer_state.json`, calls LLM, stores permanent summary document, deletes originals.
+- **`chatbotfunc/debates.py`** — `debate_scanner_loop(bot, model)`: background coroutine; `scan_channel(bot, channel_id, model)`: pulls channel history since the last scan directly from Discord, sends it plus the existing tracked list to an LLM extraction prompt, applies returned `new`/`update`/`resolve` actions to `data/debates.json`, caps entries per channel. `get_debate_context(channel_id) -> str | None`: formats unresolved entries not surfaced within the cooldown window for system-prompt injection. `mark_surfaced(channel_id, response_text)`: fuzzy-matches topic words against a sent response and stamps `last_surfaced_ts` so the same callback isn't repeated immediately.
 - **`ragfunc/memory.py`** — `ChannelMemory` (ChromaDB wrapper, singleton client via `_get_client()`): `store_message(role, content, message_id, context_snippet)`, `store_document(text, source)`, `retrieve(query, k, doc_type, before_ts)` (decay + threshold filter), `get_expiring(before_ts)`, `delete_by_ids(ids)`, `clear_documents()`, `clear_all()`; module-level `list_channel_ids()`; async helpers for all methods.
 - **`gamefunc/adventure.py`** — `AdventureGame`: 55×23 grid dungeon, 8-dir movement, viewport renderer (33×15). Win: pick up the Golden Crown.
 - **`gamefunc/adventure_panel.py`** — `AdventureView`: 3×3 D-pad, Pick Up / Inventory / Look / Quit. Direction buttons disable at walls. Embed refreshes in place.
@@ -178,12 +194,12 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
    c. Retrieve `rag_docs` (no time filter) + `rag_msgs` (`before_ts=history_cutoff_ts`, decay-aware)
    d. Apply `MAX_CONTEXT_TOKENS` trim if set (tail of `rag_msgs` first, then `rag_docs`)
    e. Log estimated token count at DEBUG
-   f. Fetch user profile: `get_user_context(author.id, author.display_name)`
+   f. Fetch user profile: `get_user_context(author.id, author.display_name)` and ongoing-threads context: `get_debate_context(channel.id)`
    g. Build tools list: `[_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]` + `_TRANSFORM_TOOL` if channel has prior image
-   h. Call `generate_gpt_response(history, personality, rag_context, user_context, tools, auto_resolve={google_search, suggest_activity})`
+   h. Call `generate_gpt_response(history, personality, rag_context, user_context, debate_context, tools, auto_resolve={google_search, suggest_activity})`
    i. `google_search` and `suggest_activity` auto-resolved internally; only image tool calls returned
    j. Handle `generate_image` / `transform_image` tool calls, post as `discord.File`, update `channel_image_state`
-   k. Send text response in chunks, store to RAG with `context_snippet=message.content[:200]`
+   k. Send text response in chunks, store to RAG with `context_snippet=message.content[:200]`, then `mark_surfaced(channel.id, gpt_response)` to stamp any referenced threads
    l. `asyncio.create_task(extract_and_update(...))` — background profile extraction, never blocks
 
 `on_reaction_add`: enqueues `_handle_reaction` through the same queue. `_handle_reaction` mirrors the text path (history cutoff, decay RAG, user profile, full tool set) and stores its response to RAG.

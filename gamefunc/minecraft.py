@@ -1,10 +1,13 @@
 import subprocess
 import asyncio
 import os
+import re
 import shlex
 import socket
 import struct
 import time
+
+_COLOR_RE = re.compile(r'§.')
 
 RCON_CONNECT_TIMEOUT = 5.0  # seconds per RCON request (socket-level, thread-safe)
 
@@ -114,6 +117,29 @@ class MinecraftServer:
             return await self._rcon(server_type, 'list')
         except Exception as e:
             return str(e)
+
+    async def get_status(self, server_type: str) -> dict | None:
+        """Returns {current, maximum, names, tps} or None if offline."""
+        try:
+            list_resp = await self._rcon(server_type, 'list')
+            m = re.search(r'(\d+) of a max of (\d+)', list_resp)
+            if not m:
+                return None
+            current, maximum = int(m.group(1)), int(m.group(2))
+            name_part = list_resp.split(':', 1)[-1].strip() if ':' in list_resp else ''
+            names = [n.strip() for n in name_part.split(',') if n.strip()] if name_part else []
+
+            tps = None
+            try:
+                tps_resp = _COLOR_RE.sub('', await self._rcon(server_type, 'spark tps')).replace('*', '')
+                vals = [float(n) for n in re.findall(r'\d+\.\d+', tps_resp) if 0 < float(n) <= 21]
+                tps = round(vals[0], 1) if vals else None
+            except Exception:
+                pass
+
+            return {'current': current, 'maximum': maximum, 'names': names, 'tps': tps}
+        except Exception:
+            return None
 
     async def is_running(self, server_type: str) -> bool:
         try:
