@@ -145,12 +145,23 @@ async def scan_channel(bot, channel_id: int, model: str):
         response = await async_chat_completion(
             model=os.getenv("DEBATE_MODEL", model),
             messages=[{"role": "user", "content": _EXTRACTION_PROMPT.format(existing=existing, chat=text_block)}],
-            max_completion_tokens=int(os.getenv("DEBATE_SCAN_MAX_TOKENS", "400")),
+            max_completion_tokens=int(os.getenv("DEBATE_SCAN_MAX_TOKENS", "600")),
             temperature=0.3,
         )
         content = response.choices[0].message.content.strip()
         match = re.search(r"\[.*\]", content, re.DOTALL)
-        actions = json.loads(match.group()) if match else []
+        actions = []
+        if match:
+            try:
+                actions = json.loads(match.group())
+            except json.JSONDecodeError:
+                # Response was truncated mid-array; salvage any complete action objects
+                objects = re.findall(r'\{[^{}]*\}', content)
+                for o in objects:
+                    try:
+                        actions.append(json.loads(o))
+                    except json.JSONDecodeError:
+                        pass
         if not isinstance(actions, list):
             actions = []
     except Exception:
