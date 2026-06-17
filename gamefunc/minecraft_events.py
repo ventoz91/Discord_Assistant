@@ -77,7 +77,7 @@ class MinecraftEventWatcher:
             'ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30',
             target, f'docker logs --tail=0 -f {container}',
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
         )
         logger.info("Minecraft event watcher connected")
         try:
@@ -87,8 +87,14 @@ class MinecraftEventWatcher:
                 if event:
                     asyncio.create_task(self._announce(bot, channel_id, event))
         finally:
-            proc.kill()
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            stderr_out = await proc.stderr.read()
             await proc.wait()
+            if stderr_out:
+                logger.warning("Minecraft event watcher SSH stderr: %s", stderr_out.decode('utf-8', errors='replace').strip())
 
     async def _announce(self, bot, channel_id: int, event: str):
         channel = bot.get_channel(channel_id)
