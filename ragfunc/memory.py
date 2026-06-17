@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import chromadb
 import asyncio
 import logging
