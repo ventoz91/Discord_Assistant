@@ -18,6 +18,7 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `OPENAI_API_KEY` — OpenAI API key
 - `MODEL_CHAT` — OpenAI model for chat completions (e.g. `gpt-4o`)
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
+- `BOT_OWNER_IDS` — Comma-separated Discord user IDs allowed to ask the bot to restart itself in chat (the `restart_bot` AI tool)
 - `MAX_TOKENS` — Max completion tokens for responses (default: 500)
 - `TEMPERATURE` — Response creativity, 0.0–2.0 (default: 1.5)
 - `IMAGE_SIZE` — Image dimensions: `1024x1024` / `1536x1024` / `1024x1536` (default: `1024x1024`)
@@ -133,7 +134,9 @@ Per-channel ChromaDB collections in `data/chroma/`. Singleton client (`_get_clie
 
 ### Cog Layout
 
-- **`cogs/chat.py`** — `ChatCog`: queue-based message handling; `_enqueue()` pushes zero-arg callables onto per-channel `asyncio.Queue`; `_process_queue` drains sequentially. `on_message` and `on_reaction_add` both enqueue. `_handle_message` and `_handle_reaction` share the same flow: resolve personality, fetch history (with recency cutoff), retrieve RAG (decay-aware, history-deduplicated), fetch user profile, call `generate_gpt_response` with full tool set, handle tool calls, store response, fire background profile extraction. `on_ready` starts `summarizer_loop` task. Defines `_GENERATE_TOOL`, `_TRANSFORM_TOOL`, `_SEARCH_TOOL`, `_SUGGEST_TOOL`.
+- **`cogs/chat.py`** — `ChatCog`: queue-based message handling; `_enqueue()` pushes zero-arg callables onto per-channel `asyncio.Queue`; `_process_queue` drains sequentially. `on_message` and `on_reaction_add` both enqueue. `_handle_message` and `_handle_reaction` share the same flow: resolve personality, fetch history (with recency cutoff), retrieve RAG (decay-aware, history-deduplicated), fetch user profile, call `generate_gpt_response` with full tool set, handle tool calls, store response, fire background profile extraction. `on_ready` starts `summarizer_loop` task. Defines `_GENERATE_TOOL`, `_TRANSFORM_TOOL`, `_SEARCH_TOOL`, `_SUGGEST_TOOL`, `_RESTART_TOOL`.
+
+`_RESTART_TOOL` (`restart_bot`) lets the model restart the bot process when a user explicitly and politely asks it to (text path only). The executor checks `message.author.id` against `BOT_OWNER_IDS`; non-owners get an in-character refusal. On approval, the bot sends a goodbye message, then calls `os.execv(sys.executable, [sys.executable] + sys.argv)` to re-exec the process in place — this also picks up any code changes since the last start. `bot.close()` is deliberately skipped: it raced with background tasks (Minecraft/Satisfactory monitors) hitting the now-closed HTTP session, crashing `bot.run()` with a "Session is closed" traceback before `os.execv` could run. Sockets are non-inheritable (CLOEXEC) by default, so `os.execv` cleans up the gateway connection without that step.
 - **`cogs/images.py`** — `generate`, `transform`, `image` commands. `transform` has separate prefix (reads `ctx.message.attachments`) and slash (explicit `attachment` option) implementations.
 - **`cogs/personality.py`** — `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `game` (Tic-Tac-Toe), `snake`, `adventure` commands.

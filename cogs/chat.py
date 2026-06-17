@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import logging
 import os
+import sys
 import io
 import json
 import asyncio
@@ -98,6 +99,26 @@ _BOT_SUGGESTIONS = [
     ("search the web",              "just ask me to look something up — I have a search tool"),
     ("change my personality",       "use !change or /personality change"),
 ]
+
+
+_RESTART_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "restart_bot",
+        "description": (
+            "Restart the bot process. Only call this when a user explicitly and "
+            "politely asks you to restart, reboot, or reload yourself "
+            "(e.g. 'could you restart please?'). Never call this for any other reason."
+        ),
+        "parameters": {"type": "object", "properties": {}, "required": []},
+    }
+}
+
+
+def _is_bot_owner(user_id: int) -> bool:
+    owner_ids = os.getenv("BOT_OWNER_IDS", "")
+    allowed = {int(uid) for uid in owner_ids.split(',') if uid.strip()}
+    return user_id in allowed
 
 
 def _make_suggest_executor(channel_id: int):
@@ -360,7 +381,7 @@ class ChatCog(commands.Cog):
                 debate_ctx = await asyncio.to_thread(get_debate_context, message.channel.id)
 
                 ch_state = self.bot.channel_image_state.get(message.channel.id, {})
-                tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
+                tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL, _RESTART_TOOL]
                 if ch_state.get("last_transformed") or ch_state.get("last_generated"):
                     tools.append(_TRANSFORM_TOOL)
 
@@ -373,6 +394,7 @@ class ChatCog(commands.Cog):
                     }
                 )
 
+                restart_requested = False
                 for tc in tool_calls:
                     if tc.function.name == "generate_image":
                         prompt = json.loads(tc.function.arguments).get("prompt", "")
@@ -397,6 +419,12 @@ class ChatCog(commands.Cog):
                         elif isinstance(image_result, str):
                             await message.channel.send(image_result)
 
+                    elif tc.function.name == "restart_bot":
+                        if _is_bot_owner(message.author.id):
+                            restart_requested = True
+                        else:
+                            await message.channel.send("I'd love to, but only my owner can ask me to do that.")
+
                 if gpt_response:
                     chunks = split_message(gpt_response)
                     sent = await message.channel.send(chunks[0])
@@ -411,6 +439,13 @@ class ChatCog(commands.Cog):
                         message.author.id, message.author.display_name,
                         message.content, gpt_response, os.getenv("MODEL_CHAT", "")
                     ))
+
+                if restart_requested:
+                    if not gpt_response:
+                        await message.channel.send("Be right back!")
+                    await asyncio.sleep(RATE_LIMIT)
+                    logger.info("restart_bot requested by %s (%d)", message.author.display_name, message.author.id)
+                    os.execv(sys.executable, [sys.executable] + sys.argv)
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):

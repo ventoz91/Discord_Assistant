@@ -250,10 +250,52 @@ ACTIVE_PERSONALITY=a sarcastic assistant named Soupy Dafoe obsessed with soup
 
 ## Running
 
+### Local (virtualenv)
+
 ```bash
 source .venv/bin/activate
 python main.py
 ```
+
+### Docker
+
+Requires Docker and Docker Compose.
+
+**First time setup — add your game server hosts to known_hosts** (prevents SSH hanging on first connect):
+
+```bash
+ssh-keyscan <your-minecraft-host> >> ~/.ssh/known_hosts
+ssh-keyscan <your-satisfactory-host> >> ~/.ssh/known_hosts
+```
+
+A `docker-compose.yml` is included at the project root:
+
+```yaml
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data       # persistent state (ChromaDB, profiles, debates, logs)
+      - ~/.ssh:/root/.ssh:ro   # SSH keys for game server management
+```
+
+**Build and run:**
+
+```bash
+docker compose up --build
+```
+
+Run in the background:
+
+```bash
+docker compose up --build -d
+```
+
+**Deploying to another server:** copy the project folder, recreate `.env` (it is gitignored), and run `docker compose up --build`. The `./data` volume path is relative so no compose edits are needed.
+
+Bot state (ChromaDB, profiles, debates, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
 
 ## Commands
 

@@ -1,0 +1,12 @@
+services:
+  bot:
+    build: .
+    env_file: .env
+    restart: unless-stopped
+    volumes:
+      # Persistent bot state: ChromaDB, profiles, debates, logs, etc.
+      - ./data:/app/data
+      # SSH keys for Minecraft/Satisfactory server management
+      - ~/.ssh:/root/.ssh:ro
+    # known_hosts must exist or SSH will prompt interactively — pre-populate it
+    # by running: ssh-keyscan <your-server-host> >> ~/.ssh/known_hosts
