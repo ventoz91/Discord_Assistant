@@ -69,7 +69,7 @@ class MinecraftEventWatcher:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning("Minecraft event watcher crashed: %s — retrying in 30s", e)
+                logger.warning("Minecraft event watcher crashed: %s: %s — retrying in 30s", type(e).__name__, e)
                 await asyncio.sleep(30)
 
     async def _stream(self, bot, channel_id: int, target: str, container: str):
