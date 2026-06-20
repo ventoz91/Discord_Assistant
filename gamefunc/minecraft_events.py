@@ -10,6 +10,9 @@ logger = logging.getLogger("bot.minecraft_events")
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 _INFO_RE  = re.compile(r'(?:INFO\]:|INFO\]: )(.+)')
 
+_CHAT_RE  = re.compile(r'<(\w+)>\s(.+)')
+_COORD_RE = re.compile(r'(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)')
+
 _DEATH_KEYWORDS = (
     'was slain', 'was shot', 'was fireballed', 'was killed', 'was pummeled',
     'fell from', 'fell off', 'fell out of', 'fell into',
@@ -24,6 +27,22 @@ _SYSTEM = (
     "A Minecraft server event just occurred. React in one short sentence in character — "
     "no @mentions, no quotation marks, no asterisks for emphasis."
 )
+
+
+def _find_coords(line: str) -> tuple[str, str, str, str, str] | None:
+    """Return (player, x, y, z, full_msg) if a chat line contains comma-separated coords."""
+    clean = _ANSI_RE.sub('', line)
+    m_info = _INFO_RE.search(clean)
+    if not m_info:
+        return None
+    m_chat = _CHAT_RE.match(m_info.group(1).strip())
+    if not m_chat:
+        return None
+    player, text = m_chat.group(1), m_chat.group(2)
+    m = _COORD_RE.search(text)
+    if not m:
+        return None
+    return (player, m.group(1), m.group(2), m.group(3), text)
 
 
 def _classify(line: str) -> str | None:
@@ -86,6 +105,9 @@ class MinecraftEventWatcher:
                 event = _classify(line)
                 if event:
                     asyncio.create_task(self._announce(bot, channel_id, event))
+                coords = _find_coords(line)
+                if coords:
+                    asyncio.create_task(self._announce_coords(bot, channel_id, *coords))
         finally:
             try:
                 proc.kill()
@@ -95,6 +117,16 @@ class MinecraftEventWatcher:
             await proc.wait()
             if stderr_out:
                 logger.warning("Minecraft event watcher SSH stderr: %s", stderr_out.decode('utf-8', errors='replace').strip())
+
+    async def _announce_coords(self, bot, channel_id: int, player: str, x: str, y: str, z: str, text: str):
+        channel = bot.get_channel(channel_id)
+        if not channel:
+            return
+        def fmt(v: str) -> str:
+            f = float(v)
+            return str(int(f)) if f == int(f) else v
+        coords_str = f"X: {fmt(x)}, Y: {fmt(y)}, Z: {fmt(z)}"
+        await channel.send(f"📍 **{player}** shared coordinates\n> {text}\n`{coords_str}`")
 
     async def _announce(self, bot, channel_id: int, event: str):
         channel = bot.get_channel(channel_id)
