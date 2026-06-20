@@ -10,8 +10,16 @@ logger = logging.getLogger("bot.minecraft_events")
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 _INFO_RE  = re.compile(r'(?:INFO\]:|INFO\]: )(.+)')
 
-_CHAT_RE  = re.compile(r'<(\w+)>\s(.+)')
-_COORD_RE = re.compile(r'(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)')
+_CHAT_RE = re.compile(r'<(\w+)>\s(.+)')
+
+# Tried most → least specific; first match wins.
+# Each entry: (pattern, has_y).  Groups are always (x, y, z) or (x, z).
+_COORD_PATTERNS = [
+    (re.compile(r'(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)'), True),   # x, y, z
+    (re.compile(r'(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)'),   True),   # x y z
+    (re.compile(r'(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)'),                       False),  # x, z
+    (re.compile(r'(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)'),                        False),  # x z
+]
 
 _DEATH_KEYWORDS = (
     'was slain', 'was shot', 'was fireballed', 'was killed', 'was pummeled',
@@ -29,8 +37,8 @@ _SYSTEM = (
 )
 
 
-def _find_coords(line: str) -> tuple[str, str, str, str, str] | None:
-    """Return (player, x, y, z, full_msg) if a chat line contains comma-separated coords."""
+def _find_coords(line: str) -> tuple[str, str, str | None, str, str] | None:
+    """Return (player, x, y_or_None, z, full_msg) if a chat line contains coords."""
     clean = _ANSI_RE.sub('', line)
     m_info = _INFO_RE.search(clean)
     if not m_info:
@@ -39,10 +47,14 @@ def _find_coords(line: str) -> tuple[str, str, str, str, str] | None:
     if not m_chat:
         return None
     player, text = m_chat.group(1), m_chat.group(2)
-    m = _COORD_RE.search(text)
-    if not m:
-        return None
-    return (player, m.group(1), m.group(2), m.group(3), text)
+    for pattern, has_y in _COORD_PATTERNS:
+        m = pattern.search(text)
+        if m:
+            if has_y:
+                return (player, m.group(1), m.group(2), m.group(3), text)
+            else:
+                return (player, m.group(1), None, m.group(2), text)
+    return None
 
 
 def _classify(line: str) -> str | None:
@@ -118,14 +130,17 @@ class MinecraftEventWatcher:
             if stderr_out:
                 logger.warning("Minecraft event watcher SSH stderr: %s", stderr_out.decode('utf-8', errors='replace').strip())
 
-    async def _announce_coords(self, bot, channel_id: int, player: str, x: str, y: str, z: str, text: str):
+    async def _announce_coords(self, bot, channel_id: int, player: str, x: str, y: str | None, z: str, text: str):
         channel = bot.get_channel(channel_id)
         if not channel:
             return
         def fmt(v: str) -> str:
             f = float(v)
             return str(int(f)) if f == int(f) else v
-        coords_str = f"X: {fmt(x)}, Y: {fmt(y)}, Z: {fmt(z)}"
+        if y is not None:
+            coords_str = f"X: {fmt(x)}, Y: {fmt(y)}, Z: {fmt(z)}"
+        else:
+            coords_str = f"X: {fmt(x)}, Z: {fmt(z)}"
         await channel.send(f"📍 **{player}** shared coordinates\n> {text}\n`{coords_str}`")
 
     async def _announce(self, bot, channel_id: int, event: str):
