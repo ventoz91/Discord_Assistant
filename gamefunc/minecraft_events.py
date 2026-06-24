@@ -3,7 +3,7 @@ import logging
 import os
 import re
 
-from openai import AsyncOpenAI
+from gamefunc.minecraft import _rcon_command, RCON_CONNECT_TIMEOUT
 
 logger = logging.getLogger("bot.minecraft_events")
 
@@ -30,12 +30,6 @@ _DEATH_KEYWORDS = (
     'experienced kinetic energy', 'froze to death', 'was struck by lightning',
 )
 
-_SYSTEM = (
-    "You are {personality}. "
-    "A Minecraft server event just occurred. React in one short sentence in character — "
-    "no @mentions, no quotation marks, no asterisks for emphasis."
-)
-
 
 def _find_coords(line: str) -> tuple[str, str, str | None, str, str] | None:
     """Return (player, x, y_or_None, z, full_msg) if a chat line contains coords."""
@@ -58,14 +52,8 @@ def _find_coords(line: str) -> tuple[str, str, str | None, str, str] | None:
 
 
 def _classify(line: str) -> str | None:
-    """Return a human-readable event string, or None if the line is uninteresting."""
+    """Return a death event string, or None if the line is uninteresting."""
     clean = _ANSI_RE.sub('', line)
-    if 'joined the game' in clean:
-        m = re.search(r'(\S+) joined the game', clean)
-        return m.group(0) if m else 'Someone joined the game'
-    if 'left the game' in clean:
-        m = re.search(r'(\S+) left the game', clean)
-        return m.group(0) if m else 'Someone left the game'
     for kw in _DEATH_KEYWORDS:
         if kw in clean:
             m = _INFO_RE.search(clean)
@@ -74,8 +62,8 @@ def _classify(line: str) -> str | None:
 
 
 class MinecraftEventWatcher:
-    def __init__(self, openai_api_key: str):
-        self._client = AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self, server_key: str = 'VANILLA'):
+        self._server_key = server_key.upper()
         self._task: asyncio.Task | None = None
 
     def start(self, bot, channel_id: int):
@@ -86,13 +74,14 @@ class MinecraftEventWatcher:
             self._task.cancel()
 
     async def _watch_loop(self, bot, channel_id: int):
-        ssh_host = os.getenv('MINECRAFT_VANILLA_SSH_HOST', '')
+        key = self._server_key
+        ssh_host = os.getenv(f'MINECRAFT_{key}_SSH_HOST', '')
         if not ssh_host:
-            logger.info("MINECRAFT_VANILLA_SSH_HOST not set — Minecraft event watcher disabled")
+            logger.info("MINECRAFT_%s_SSH_HOST not set — %s event watcher disabled", key, key.lower())
             return
-        ssh_user = os.getenv('MINECRAFT_VANILLA_SSH_USER', '')
+        ssh_user = os.getenv(f'MINECRAFT_{key}_SSH_USER', '')
         target = f'{ssh_user}@{ssh_host}' if ssh_user else ssh_host
-        container = os.getenv('MINECRAFT_VANILLA_CONTAINER', 'minecraft')
+        container = os.getenv(f'MINECRAFT_{key}_CONTAINER', 'minecraft')
 
         while True:
             try:
@@ -100,7 +89,7 @@ class MinecraftEventWatcher:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning("Minecraft event watcher crashed: %s: %s — retrying in 30s", type(e).__name__, e)
+                logger.warning("Minecraft %s event watcher crashed: %s: %s — retrying in 30s", key, type(e).__name__, e)
                 await asyncio.sleep(30)
 
     async def _stream(self, bot, channel_id: int, target: str, container: str):
@@ -110,13 +99,13 @@ class MinecraftEventWatcher:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        logger.info("Minecraft event watcher connected")
+        logger.info("Minecraft %s event watcher connected", self._server_key)
         try:
             async for raw in proc.stdout:
                 line = raw.decode('utf-8', errors='replace').strip()
                 event = _classify(line)
                 if event:
-                    asyncio.create_task(self._announce(bot, channel_id, event))
+                    asyncio.create_task(self._announce_death(bot, channel_id, event))
                 coords = _find_coords(line)
                 if coords:
                     asyncio.create_task(self._announce_coords(bot, channel_id, *coords))
@@ -128,7 +117,7 @@ class MinecraftEventWatcher:
             stderr_out = await proc.stderr.read()
             await proc.wait()
             if stderr_out:
-                logger.warning("Minecraft event watcher SSH stderr: %s", stderr_out.decode('utf-8', errors='replace').strip())
+                logger.warning("Minecraft %s event watcher SSH stderr: %s", self._server_key, stderr_out.decode('utf-8', errors='replace').strip())
 
     async def _announce_coords(self, bot, channel_id: int, player: str, x: str, y: str | None, z: str, text: str):
         channel = bot.get_channel(channel_id)
@@ -143,21 +132,31 @@ class MinecraftEventWatcher:
             coords_str = f"X: {fmt(x)}, Z: {fmt(z)}"
         await channel.send(f"📍 **{player}** shared coordinates\n> {text}\n`{coords_str}`")
 
-    async def _announce(self, bot, channel_id: int, event: str):
+    async def _announce_death(self, bot, channel_id: int, event: str):
         channel = bot.get_channel(channel_id)
         if not channel:
             return
-        personality = getattr(bot, 'chatgpt_behaviour', '')
-        try:
-            resp = await self._client.chat.completions.create(
-                model=os.getenv('MODEL_CHAT', 'gpt-4o'),
-                messages=[
-                    {"role": "system", "content": _SYSTEM.format(personality=personality)},
-                    {"role": "user",   "content": event},
-                ],
-                max_completion_tokens=60,
-                temperature=1.2,
-            )
-            await channel.send(resp.choices[0].message.content.strip())
-        except Exception as e:
-            logger.warning("Event commentary failed: %s", e)
+
+        # Extract player name — first word of every Minecraft death message
+        m = re.match(r'(\w+)\s', event)
+        player = m.group(1) if m else None
+
+        coords_str = ''
+        if player:
+            key = self._server_key
+            rcon_host = os.getenv(f'MINECRAFT_{key}_RCON_HOST', 'localhost')
+            rcon_port = int(os.getenv(f'MINECRAFT_{key}_RCON_PORT', '25575'))
+            rcon_pass = os.getenv(f'MINECRAFT_{key}_RCON_PASSWORD', '')
+            try:
+                raw = await asyncio.to_thread(
+                    _rcon_command, rcon_host, rcon_port, rcon_pass,
+                    f'data get entity {player} Pos', RCON_CONNECT_TIMEOUT,
+                )
+                nums = re.findall(r'-?\d+(?:\.\d+)?', raw)
+                if len(nums) >= 3:
+                    x, y, z = int(float(nums[0])), int(float(nums[1])), int(float(nums[2]))
+                    coords_str = f'\n`X: {x}, Y: {y}, Z: {z}`'
+            except Exception as e:
+                logger.warning("Minecraft %s RCON coord lookup for %s failed: %s", key, player, e)
+
+        await channel.send(f"💀 {event}{coords_str}")

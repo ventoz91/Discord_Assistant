@@ -189,8 +189,12 @@ class ChatCog(commands.Cog):
         api_key = os.getenv("OPENAI_API_KEY", "")
         mc_channel = _channel_id('MINECRAFT_EVENTS_CHANNEL_ID')
         if mc_channel:
-            self._mc_watcher = MinecraftEventWatcher(api_key)
+            self._mc_watcher = MinecraftEventWatcher('VANILLA')
             self._mc_watcher.start(self.bot, mc_channel)
+        mc_creative_channel = _channel_id('MINECRAFT_CREATIVE_EVENTS_CHANNEL_ID')
+        if mc_creative_channel:
+            self._mc_creative_watcher = MinecraftEventWatcher('CREATIVE')
+            self._mc_creative_watcher.start(self.bot, mc_creative_channel)
         sf_channel = _channel_id('SATISFACTORY_EVENTS_CHANNEL_ID')
         if sf_channel:
             self._sf_monitor = SatisfactoryMonitor(api_key)

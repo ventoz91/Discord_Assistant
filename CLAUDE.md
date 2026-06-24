@@ -78,6 +78,12 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `MINECRAFT_VANILLA_SSH_USER` — optional SSH username; defaults to current user
 - `MINECRAFT_VANILLA_COMPOSE_DIR` — path to docker-compose on remote host (default: `/home/data`)
 - `MINECRAFT_MODDED_DIR` / `MINECRAFT_MODDED_RCON_HOST` / `MINECRAFT_MODDED_RCON_PORT` / `MINECRAFT_MODDED_RCON_PASSWORD`
+- `MINECRAFT_CREATIVE_SSH_HOST` — remote host for creative server event watcher via SSH+Docker
+- `MINECRAFT_CREATIVE_SSH_USER` — optional SSH username for creative server
+- `MINECRAFT_CREATIVE_CONTAINER` — Docker container name for creative server (default: `minecraft`)
+- `MINECRAFT_CREATIVE_RCON_HOST` / `MINECRAFT_CREATIVE_RCON_PORT` / `MINECRAFT_CREATIVE_RCON_PASSWORD` — RCON settings for creative server
+- `MINECRAFT_CREATIVE_CONNECT_URL` — free-text connection address shown in the creative server panel
+- `MINECRAFT_CREATIVE_EVENTS_CHANNEL_ID` — Discord channel ID for creative server event announcements
 - `VALHEIM_SERVER_NAME` / `VALHEIM_WORLD_NAME` / `VALHEIM_PASSWORD` / `VALHEIM_PORT` / `VALHEIM_STEAM_DIR`
 - `ENSHROUDED_EXE`
 - `SATISFACTORY_SSH_HOST` — required; remote host to SSH into for start/stop
