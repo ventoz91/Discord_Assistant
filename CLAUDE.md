@@ -91,6 +91,13 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `SATISFACTORY_COMPOSE_DIR` — path to docker-compose on remote host (default: `/home/data`)
 - `SATISFACTORY_API_HOST` — host for HTTPS API calls (default: `SATISFACTORY_SSH_HOST`)
 - `SATISFACTORY_API_PORT` — API port (default: `7777`)
+- `MINECRAFT_EVENTS_ENABLED` / `SATISFACTORY_EVENTS_ENABLED` — `true` / `false` (default: `true`). Kill switches for the Minecraft event watchers (vanilla + creative) and the Satisfactory milestone monitor. Checked every cycle, so toggling takes effect within ~5 minutes without a restart. Both watchers also idle quietly (5-minute poll) while their server is offline instead of hammering reconnects.
+- `EMUCOACH_SSH_HOST` — Windows 11 VM hosting the EmuCoach WoW repack; requires OpenSSH Server with key auth (required for EmuCoach commands)
+- `EMUCOACH_SSH_USER` — optional SSH username
+- `EMUCOACH_DIR` — repack root on the VM (default: `C:\GameServers\CATASILVER`)
+- `EMUCOACH_DB_START` / `EMUCOACH_AUTH_START` / `EMUCOACH_WORLD_START` — start targets relative to `EMUCOACH_DIR` (defaults: `Database\start_mysql.bat`, `Repack\authserver.exe`, `Repack\worldserver.exe`). `.bat`/`.cmd` files are wrapped in `cmd /c`.
+- `EMUCOACH_DB_WAIT` — seconds between database start and auth/world launch (default: 10)
+- `EMUCOACH_CONNECT_URL` — free-text connection address shown in EmuCoach status messages
 
 **Personalities (legacy — migration only)**
 - `PERSONALITY=<descriptor>` — Read once on first run to populate `data/personalities.json`. After migration, ignored.
@@ -174,6 +181,9 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 - **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread).
 - **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed, button enable/disable rules.
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only).
+- **`gamefunc/emucoach.py`** — `EmucoachServer`: starts/stops the EmuCoach WoW repack on a Windows VM over SSH. Spawns processes via WMI (`Win32_Process Create`, PowerShell `-EncodedCommand`) so they detach from the SSH session and survive disconnect. Start order: database → wait → authserver → worldserver, each skipped if its process already runs. Stop force-kills world/auth then mysqld. Status reports each component from the remote process list.
+- **`gamefunc/minecraft_events.py`** — `MinecraftEventWatcher`: SSH + `docker logs -f` stream per server (vanilla/creative). While the container is down or `MINECRAFT_EVENTS_ENABLED=false`, idles on a 5-minute poll (`docker inspect` state check) instead of streaming; errors during the poll are silent (DEBUG).
+- **`gamefunc/satisfactory_monitor.py`** — `SatisfactoryMonitor`: polls the Satisfactory API every 5 minutes for tech-tier milestones; skips cycles while `SATISFACTORY_EVENTS_ENABLED=false`.
 - **`funfunc/`** — `image_search.py` (Google CSE), `web_search.py` (Tavily, used by `google_search` AI tool), `sandwich.py`.
 
 ### Shared State
@@ -236,6 +246,7 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
 | `!status` | `/status` | Live embed showing all game servers at a glance |
 | `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
+| `!start_emucoach` / `!stop_emucoach` / `!emucoach_status` | `/emucoach start\|stop\|status` | Manage EmuCoach WoW repack on the Windows VM (SSH) |
 | `!commands` / `!help` | `/commands` / `/help` | Show all bot commands (formatted text list) |
 | `!sandwich` | `/sandwich` | Generate a random sandwich with AI image |
 | `!learn [text]` | `/learn` | Store text or file in RAG memory |

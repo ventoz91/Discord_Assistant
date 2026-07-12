@@ -7,6 +7,12 @@ from gamefunc.minecraft import _rcon_command, RCON_CONNECT_TIMEOUT
 
 logger = logging.getLogger("bot.minecraft_events")
 
+_POLL_INTERVAL = 300  # seconds between checks while the server is offline or the watcher is disabled
+
+
+def _watcher_enabled() -> bool:
+    return os.getenv('MINECRAFT_EVENTS_ENABLED', 'true').strip().lower() != 'false'
+
 _ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
 _INFO_RE  = re.compile(r'(?:INFO\]:|INFO\]: )(.+)')
 
@@ -85,12 +91,37 @@ class MinecraftEventWatcher:
 
         while True:
             try:
+                if not _watcher_enabled() or not await self._container_running(target, container):
+                    await asyncio.sleep(_POLL_INTERVAL)
+                    continue
                 await self._stream(bot, channel_id, target, container)
+                logger.info("Minecraft %s log stream ended — rechecking in %ds", key, _POLL_INTERVAL)
+                await asyncio.sleep(_POLL_INTERVAL)
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning("Minecraft %s event watcher crashed: %s: %s — retrying in 30s", key, type(e).__name__, e)
-                await asyncio.sleep(30)
+                logger.debug("Minecraft %s event watcher error: %s: %s — retrying in %ds", key, type(e).__name__, e, _POLL_INTERVAL)
+                await asyncio.sleep(_POLL_INTERVAL)
+
+    async def _container_running(self, target: str, container: str) -> bool:
+        """Cheap SSH check whether the Docker container is up. Fails silently to False."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                'ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10',
+                target, f"docker inspect -f '{{{{.State.Running}}}}' {container}",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            out, _ = await asyncio.wait_for(proc.communicate(), timeout=20)
+            return out.decode('utf-8', errors='replace').strip() == 'true'
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            return False
+        except Exception:
+            return False
 
     async def _stream(self, bot, channel_id: int, target: str, container: str):
         proc = await asyncio.create_subprocess_exec(

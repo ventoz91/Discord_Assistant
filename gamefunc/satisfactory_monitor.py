@@ -9,6 +9,10 @@ logger = logging.getLogger("bot.satisfactory_monitor")
 
 _POLL_INTERVAL = 300  # seconds between tier checks
 
+
+def _monitor_enabled() -> bool:
+    return os.getenv('SATISFACTORY_EVENTS_ENABLED', 'true').strip().lower() != 'false'
+
 _SYSTEM = (
     "You are {personality}. "
     "A factory milestone was just reached in Satisfactory. React in one enthusiastic sentence "
@@ -38,6 +42,9 @@ class SatisfactoryMonitor:
         logger.info("Satisfactory monitor started (poll interval: %ds)", _POLL_INTERVAL)
         while True:
             try:
+                if not _monitor_enabled():
+                    await asyncio.sleep(_POLL_INTERVAL)
+                    continue
                 state = await self._server.get_state()
                 if state and state.get('is_game_running'):
                     tier = state.get('tech_tier')

@@ -51,6 +51,9 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!valheim_status  ·  /valheim status",     "Valheim status"),
         ("!start_enshrouded  ·  /enshrouded start", "Start Enshrouded"),
         ("!stop_enshrouded  ·  /enshrouded stop",   "Stop Enshrouded"),
+        ("!start_emucoach  ·  /emucoach start",     "Start EmuCoach WoW server"),
+        ("!stop_emucoach  ·  /emucoach stop",       "Stop EmuCoach WoW server"),
+        ("!emucoach_status  ·  /emucoach status",   "EmuCoach WoW status"),
     ],
     "🎲  MISC": [
         ("!sandwich  ·  /sandwich",  "Random sandwich with an AI image"),
