@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+import contextlib
 import logging
 import os
 import sys
@@ -10,6 +11,24 @@ import aiohttp
 from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, SUPPORTED_DOC_EXTENSIONS
 
 logger = logging.getLogger("bot.chat")
+
+
+@contextlib.asynccontextmanager
+async def _safe_typing(channel):
+    """Best-effort typing indicator: a Discord API failure on this cosmetic
+    call must never abort the actual response (see 2026-07-17 outage)."""
+    typing_cm = channel.typing()
+    try:
+        await typing_cm.__aenter__()
+    except Exception as exc:
+        logger.warning("typing indicator failed in channel %s: %s", channel.id, exc)
+        yield
+        return
+    try:
+        yield
+    finally:
+        with contextlib.suppress(Exception):
+            await typing_cm.__aexit__(None, None, None)
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
 from funfunc.web_search import web_search
@@ -296,7 +315,7 @@ class ChatCog(commands.Cog):
         if message.attachments and should_respond:
             for attachment in message.attachments:
                 if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
-                    async with message.channel.typing():
+                    async with _safe_typing(message.channel):
                         logger.info("processing image: %s", attachment.filename)
                         base64_image = await encode_discord_image(attachment.url)
                         instructions = message.content if message.content else "What's in this image?"
@@ -339,7 +358,7 @@ class ChatCog(commands.Cog):
             await async_store_message(message.channel.id, "user", message.content, message.id,
                                       context_snippet=last_assistant)
 
-            async with message.channel.typing():
+            async with _safe_typing(message.channel):
                 query = message.content or ""
 
                 rag_docs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
