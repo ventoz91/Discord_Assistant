@@ -4,6 +4,7 @@ import contextlib
 import logging
 import os
 import sys
+import time
 import io
 import json
 import asyncio
@@ -11,6 +12,15 @@ import aiohttp
 from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, SUPPORTED_DOC_EXTENSIONS
 
 logger = logging.getLogger("bot.chat")
+
+
+# Discord API degradation tracking: typing failures are the canary (first API
+# call per message). While a channel has a failure within the window, replies
+# are preceded by a small notice, at most once per cooldown.
+_API_DEGRADED_WINDOW = 600
+_API_WARN_COOLDOWN = 1800
+_api_failure_ts: dict[int, float] = {}
+_api_warned_ts: dict[int, float] = {}
 
 
 @contextlib.asynccontextmanager
@@ -21,6 +31,7 @@ async def _safe_typing(channel):
     try:
         await typing_cm.__aenter__()
     except Exception as exc:
+        _api_failure_ts[channel.id] = time.time()
         logger.warning("typing indicator failed in channel %s: %s", channel.id, exc)
         yield
         return
@@ -29,6 +40,24 @@ async def _safe_typing(channel):
     finally:
         with contextlib.suppress(Exception):
             await typing_cm.__aexit__(None, None, None)
+
+
+async def _maybe_send_degradation_notice(channel):
+    """Post a one-line API degradation notice if this channel saw a recent
+    Discord API failure and hasn't been warned within the cooldown. A failed
+    notice send must never affect the reply that follows."""
+    now = time.time()
+    if now - _api_failure_ts.get(channel.id, 0) > _API_DEGRADED_WINDOW:
+        return
+    if now - _api_warned_ts.get(channel.id, 0) < _API_WARN_COOLDOWN:
+        return
+    try:
+        await channel.send(
+            "-# ⚠️ Discord's API is having issues right now — replies may be slow, duplicated, or occasionally missing."
+        )
+        _api_warned_ts[channel.id] = now
+    except Exception as exc:
+        logger.debug("degradation notice send failed in channel %s: %s", channel.id, exc)
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
 from funfunc.web_search import web_search
@@ -285,6 +314,7 @@ class ChatCog(commands.Cog):
                 }
             )
             if gpt_response:
+                await _maybe_send_degradation_notice(channel)
                 sent = await channel.send(gpt_response)
                 await async_store_message(channel.id, "assistant", gpt_response, sent.id,
                                           context_snippet=prompt[:200])
@@ -323,6 +353,7 @@ class ChatCog(commands.Cog):
                         response_text = await analyze_image(
                             base64_image, instructions, message_history, channel_behaviour
                         )
+                        await _maybe_send_degradation_notice(message.channel)
                         sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
                         if response_text:
                             await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}", message.id)
@@ -449,6 +480,7 @@ class ChatCog(commands.Cog):
                             await message.channel.send("I'd love to, but only my owner can ask me to do that.")
 
                 if gpt_response:
+                    await _maybe_send_degradation_notice(message.channel)
                     chunks = split_message(gpt_response)
                     sent = await message.channel.send(chunks[0])
                     await asyncio.sleep(RATE_LIMIT)
