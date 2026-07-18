@@ -7,6 +7,7 @@ import io
 
 logger = logging.getLogger("bot.rag")
 from ragfunc.memory import async_store_document, async_count, async_clear_documents, async_clear_all
+from chatbotfunc.profiles import get_facts, delete_fact, clear_facts
 from chatbotfunc.utils import fetch_message_history, split_message, SUPPORTED_DOC_EXTENSIONS
 from AIfunc.responses import generate_gpt_response
 
@@ -188,6 +189,40 @@ class RAGCog(commands.Cog):
         except Exception as e:
             logger.exception("missed failed")
             await ctx.respond(f"Error generating summary: {e}")
+
+    # ── !whoami / !forget — user profile transparency ─────────────────────────
+
+    @bridge.bridge_command(name="whoami", description="See what I remember about you")
+    async def whoami(self, ctx):
+        facts = await asyncio.to_thread(get_facts, ctx.author.id)
+        if not facts:
+            await ctx.respond(f"I haven't stored any facts about you yet, {ctx.author.display_name}.")
+            return
+        listing = "\n".join(f"{i}. {fact}" for i, fact in enumerate(facts, 1))
+        await ctx.respond(
+            f"**What I remember about {ctx.author.display_name}:**\n{listing}\n"
+            f"-# Remove one with `!forget <number>`, or everything with `!forget all`."
+        )
+
+    @bridge.bridge_command(name="forget", description="Delete a stored fact about you: a number from !whoami, or 'all'")
+    async def forget(self, ctx, target: str):
+        if target.strip().lower() == "all":
+            count = await asyncio.to_thread(clear_facts, ctx.author.id)
+            if count:
+                await ctx.respond(f"Forgotten — all {count} facts about you are gone.")
+            else:
+                await ctx.respond("There was nothing stored about you to forget.")
+            return
+        try:
+            index = int(target)
+        except ValueError:
+            await ctx.respond("Give me a fact number from `!whoami`, or `all`.")
+            return
+        removed = await asyncio.to_thread(delete_fact, ctx.author.id, index)
+        if removed:
+            await ctx.respond(f"Forgotten: ~~{removed}~~")
+        else:
+            await ctx.respond(f"No fact #{index} — check `!whoami` for the current list.")
 
     # ── !clearall (prefix only — too destructive for accidental slash) ────────
 

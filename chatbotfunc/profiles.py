@@ -40,6 +40,34 @@ def get_user_context(user_id: int, display_name: str) -> str | None:
     return f"{display_name}: {'; '.join(facts)}"
 
 
+def get_facts(user_id: int) -> list[str]:
+    """All stored facts for a user, oldest first. For !whoami."""
+    profiles = _load()
+    return list(profiles.get(str(user_id), {}).get("facts", []))
+
+
+def delete_fact(user_id: int, index: int) -> str | None:
+    """Delete fact by 1-based index as shown in !whoami. Returns the removed fact."""
+    profiles = _load()
+    facts = profiles.get(str(user_id), {}).get("facts", [])
+    if not 1 <= index <= len(facts):
+        return None
+    removed = facts.pop(index - 1)
+    _save(profiles)
+    return removed
+
+
+def clear_facts(user_id: int) -> int:
+    """Delete all stored facts for a user. Returns how many were removed."""
+    profiles = _load()
+    uid = str(user_id)
+    count = len(profiles.get(uid, {}).get("facts", []))
+    if uid in profiles:
+        del profiles[uid]
+        _save(profiles)
+    return count
+
+
 async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot_msg: str, model: str):
     """Background task: extract new facts from an exchange and merge into the user profile.
 
