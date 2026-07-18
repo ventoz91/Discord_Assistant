@@ -3,6 +3,7 @@ from discord.ext import commands
 import contextlib
 import logging
 import os
+import re
 import sys
 import time
 import io
@@ -68,6 +69,10 @@ from gamefunc.minecraft_events import MinecraftEventWatcher
 from gamefunc.satisfactory_monitor import SatisfactoryMonitor
 
 RATE_LIMIT = 0.5
+
+
+def _is_lone_url(content: str) -> bool:
+    return bool(re.fullmatch(r"https?://\S+", (content or "").strip()))
 
 
 def _channel_id(env_var: str) -> int | None:
@@ -190,6 +195,49 @@ class ChatCog(commands.Cog):
         self.bot = bot
         self._channel_queues: dict[int, asyncio.Queue] = {}
         self._channel_workers: dict[int, asyncio.Task] = {}
+
+    async def _analyze_and_reply(self, message, image_url, label, channel_behaviour, url_only_message=False) -> bool:
+        """Vision-analyze an image URL and send the response. Returns True when
+        a reply was sent; False (fall through to the text path) if the image
+        couldn't be fetched/decoded."""
+        async with _safe_typing(message.channel):
+            logger.info("processing image: %s", label)
+            base64_image = await encode_discord_image(image_url)
+            if not base64_image:
+                return False
+            # A bare GIF/embed URL isn't an instruction — use the default prompt
+            instructions = message.content if message.content and not url_only_message else "What's in this image?"
+            message_history = await fetch_message_history(message.channel, self.bot)
+            response_text = await analyze_image(
+                base64_image, instructions, message_history, channel_behaviour
+            )
+            await _maybe_send_degradation_notice(message.channel)
+            sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
+            if response_text:
+                await async_store_message(message.channel.id, "user", f"[shared image: {label}] {instructions}", message.id,
+                                          author=message.author.display_name)
+                await async_store_message(message.channel.id, "assistant", f"[image analysis: {label}] {response_text}", sent_analysis.id)
+            return True
+
+    async def _embed_image_source(self, message):
+        """Return (image_url, label) from the message's first image-bearing
+        embed, or (None, None). Discord unfurls URL embeds asynchronously via
+        MESSAGE_UPDATE, so if none are present yet, wait briefly and re-fetch."""
+        embeds = message.embeds
+        if not embeds:
+            await asyncio.sleep(2)
+            try:
+                refreshed = await message.channel.fetch_message(message.id)
+                embeds = refreshed.embeds
+            except Exception as exc:
+                logger.debug("embed re-fetch failed for %s: %s", message.id, exc)
+                return None, None
+        for embed in embeds:
+            for proxy in (getattr(embed, "image", None), getattr(embed, "thumbnail", None)):
+                url = getattr(proxy, "url", None)
+                if url and isinstance(url, str):
+                    return url, (getattr(embed, "url", None) or url)
+        return None, None
 
     def _should_respond(self, message) -> bool:
         if message.author == self.bot.user:
@@ -344,23 +392,24 @@ class ChatCog(commands.Cog):
         image_processed = False
         if message.attachments and should_respond:
             for attachment in message.attachments:
-                if attachment.filename.lower().endswith(IMAGE_EXTENSIONS):
-                    async with _safe_typing(message.channel):
-                        logger.info("processing image: %s", attachment.filename)
-                        base64_image = await encode_discord_image(attachment.url)
-                        instructions = message.content if message.content else "What's in this image?"
-                        message_history = await fetch_message_history(message.channel, self.bot)
-                        response_text = await analyze_image(
-                            base64_image, instructions, message_history, channel_behaviour
-                        )
-                        await _maybe_send_degradation_notice(message.channel)
-                        sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
-                        if response_text:
-                            await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}", message.id,
-                                                      author=message.author.display_name)
-                            await async_store_message(message.channel.id, "assistant", f"[image analysis: {attachment.filename}] {response_text}", sent_analysis.id)
-                        image_processed = True
-                        break
+                # content_type is Discord's real MIME type — GIF-picker sends
+                # and oddly named files often don't match by extension alone.
+                ctype = attachment.content_type or ""
+                if ctype.startswith("image/") or attachment.filename.lower().endswith(IMAGE_EXTENSIONS):
+                    image_processed = await self._analyze_and_reply(
+                        message, attachment.url, attachment.filename, channel_behaviour
+                    )
+                    break
+
+        # GIF-picker messages are often just a Tenor/Giphy URL that Discord
+        # unfurls into an embed — no attachment. Analyze the embed's preview
+        # image so the message isn't treated as blank text.
+        if not image_processed and should_respond and not message.attachments and _is_lone_url(message.content):
+            embed_url, label = await self._embed_image_source(message)
+            if embed_url:
+                image_processed = await self._analyze_and_reply(
+                    message, embed_url, label, channel_behaviour, url_only_message=True
+                )
 
         if image_processed:
             return

@@ -205,7 +205,7 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
 `_handle_message`:
 1. Resolve `channel_behaviour` = channel pin or `bot.chatgpt_behaviour`
 2. Evaluate `should_respond` once (used for all three attachment/text paths)
-3. Image attachment path: `analyze_image()`, send response, store user + analysis to RAG with message IDs, return
+3. Image path (`_analyze_and_reply`): attachments are detected by MIME `content_type` (falling back to `IMAGE_EXTENSIONS` filename match); lone-URL messages (GIF picker → Tenor/Giphy) are vision-analyzed via their embed's preview image (`_embed_image_source`, which waits 2s and re-fetches once if Discord hasn't unfurled the embed yet). Sends response, stores user + analysis to RAG with message IDs, returns. If the image can't be fetched/decoded, falls through to the text path.
 4. Document attachment path: download, `async_store_document`, break
 5. Text path — `should_respond` gate:
    a. Fetch `message_history` with `return_cutoff=True` to get `history_cutoff_ts`

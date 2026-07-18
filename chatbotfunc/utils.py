@@ -25,7 +25,13 @@ def describe_extras(message) -> str:
     don't vanish from history — the model at least sees they happened."""
     parts = []
     for att in message.attachments:
-        kind = "image" if att.filename.lower().endswith(IMAGE_EXTENSIONS) else "file"
+        ctype = getattr(att, "content_type", None) or ""
+        if ctype.startswith("image/") or att.filename.lower().endswith(IMAGE_EXTENSIONS):
+            kind = "image"
+        elif ctype.startswith("video/") or att.filename.lower().endswith(('.mp4', '.webm', '.mov')):
+            kind = "video"
+        else:
+            kind = "file"
         parts.append(f"[shared {kind}: {att.filename}]")
     for sticker in getattr(message, "stickers", ()):
         parts.append(f"[sticker: {sticker.name}]")
