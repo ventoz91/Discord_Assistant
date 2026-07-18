@@ -61,7 +61,12 @@ async def _maybe_send_degradation_notice(channel):
         logger.debug("degradation notice send failed in channel %s: %s", channel.id, exc)
 from AIfunc.responses import analyze_image, generate_gpt_response, generate_image, transform_image
 from ragfunc.memory import async_store_message, async_retrieve, async_store_document
-from funfunc.web_search import web_search
+from cogs.chat_tools import (
+    GENERATE_TOOL as _GENERATE_TOOL, TRANSFORM_TOOL as _TRANSFORM_TOOL,
+    SEARCH_TOOL as _SEARCH_TOOL, SUGGEST_TOOL as _SUGGEST_TOOL, RESTART_TOOL as _RESTART_TOOL,
+    execute_search as _execute_search, make_suggest_executor as _make_suggest_executor,
+    is_bot_owner as _is_bot_owner,
+)
 from chatbotfunc.profiles import get_user_context, extract_and_update
 from chatbotfunc.summarizer import summarizer_loop
 from chatbotfunc.debates import get_debate_context, mark_surfaced, debate_scanner_loop
@@ -78,117 +83,6 @@ def _is_lone_url(content: str) -> bool:
 def _channel_id(env_var: str) -> int | None:
     v = os.getenv(env_var, '').strip()
     return int(v) if v else None
-
-_GENERATE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "generate_image",
-        "description": "Generate and post an image to the chat. Use this when the user explicitly asks for a picture, image, drawing, or photo of something.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "prompt": {"type": "string", "description": "Detailed image generation prompt describing what to create"}
-            },
-            "required": ["prompt"]
-        }
-    }
-}
-
-_TRANSFORM_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "transform_image",
-        "description": "Transform or modify the most recent image in this channel. Use this when the user asks to change, edit, modify, or transform the current or last image.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "instructions": {"type": "string", "description": "Instructions describing how to transform the image"}
-            },
-            "required": ["instructions"]
-        }
-    }
-}
-
-_SEARCH_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "google_search",
-        "description": "Search the web for current information. Use this for recent events, specific facts, or anything that may be outside your training data.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "The search query"}
-            },
-            "required": ["query"]
-        }
-    }
-}
-
-async def _execute_search(args: dict) -> str:
-    return await web_search(args.get("query", ""))
-
-
-_SUGGEST_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "suggest_activity",
-        "description": (
-            "Suggest something to do — either a bot feature or an activity previously "
-            "mentioned by users in this channel. Call this when someone asks what to do, "
-            "says they're bored, asks for a suggestion, or asks what the bot can do."
-        ),
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    }
-}
-
-_BOT_SUGGESTIONS = [
-    ("play Snake",                  "use !snake or /snake — button D-pad, score tracked"),
-    ("play Tic-Tac-Toe",            "use !game X or !game O or /game"),
-    ("explore the ASCII dungeon",   "use !adventure or /adventure — 8-directional roguelike"),
-    ("generate an AI image",        "use !generate <prompt> or /generate"),
-    ("transform an existing image", "post an image then use !transform or /transform"),
-    ("make a random sandwich",      "use !sandwich or /sandwich — comes with an AI photo"),
-    ("simulate a debate",           "use !simulate <topic> or /simulate — pick two personalities to argue"),
-    ("search the web",              "just ask me to look something up — I have a search tool"),
-    ("change my personality",       "use !change or /personality change"),
-]
-
-
-_RESTART_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "restart_bot",
-        "description": (
-            "Restart the bot process. Only call this when a user explicitly and "
-            "politely asks you to restart, reboot, or reload yourself "
-            "(e.g. 'could you restart please?'). Never call this for any other reason."
-        ),
-        "parameters": {"type": "object", "properties": {}, "required": []},
-    }
-}
-
-
-def _is_bot_owner(user_id: int) -> bool:
-    owner_ids = os.getenv("BOT_OWNER_IDS", "")
-    allowed = {int(uid) for uid in owner_ids.split(',') if uid.strip()}
-    return user_id in allowed
-
-
-def _make_suggest_executor(channel_id: int):
-    import random
-
-    async def _execute(args: dict) -> str:
-        past = await async_retrieve(
-            channel_id, "something fun activity let's do play", k=15, doc_type="message"
-        )
-        if past and random.random() < 0.5:
-            snippet = random.choice(past)
-            return f"A past activity mentioned in this channel: {snippet}\nUse this as inspiration for a suggestion."
-        label, how = random.choice(_BOT_SUGGESTIONS)
-        return f"Suggest the user tries: {label} — {how}"
-
-    return _execute
-
 
 class ChatCog(commands.Cog):
     def __init__(self, bot):
@@ -368,19 +262,78 @@ class ChatCog(commands.Cog):
         emoji_name = reaction.emoji.name if hasattr(reaction.emoji, "name") else str(reaction.emoji)
         prompt = f"{user.display_name} reacted to your last message with {emoji_name}. Respond in character."
 
-        rag_docs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
-        rag_msgs = await async_retrieve(channel.id, emoji_name, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message", before_ts=history_cutoff_ts)
-        rag_context = rag_docs + rag_msgs or None
-
-        message_history.append({"role": "user", "content": prompt})
-        user_ctx = await asyncio.to_thread(get_user_context, user.id, user.display_name)
-        debate_ctx = await asyncio.to_thread(get_debate_context, channel.id)
-        ch_state = self.bot.channel_image_state.get(channel.id, {})
-        tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
-        if ch_state.get("last_transformed") or ch_state.get("last_generated"):
-            tools.append(_TRANSFORM_TOOL)
-
         try:
+            await self._run_llm_flow(
+                channel, user,
+                query=emoji_name,
+                prompt_content=prompt,
+                message_history=message_history,
+                history_cutoff_ts=history_cutoff_ts,
+                channel_behaviour=channel_behaviour,
+                context_snippet=prompt[:200],
+            )
+        except Exception:
+            logger.exception("_handle_reaction failed")
+            await channel.send(format_error_message(Exception("reaction handler error")))
+
+    async def _run_llm_flow(self, channel, author, *, query, prompt_content, message_history,
+                            history_cutoff_ts, channel_behaviour, context_snippet,
+                            allow_restart=False, extract_profile_from=None):
+        """Shared response flow for the text and reaction paths: RAG retrieval
+        with token budgeting, context assembly, generation, tool-call handling,
+        chunked sending, storage, and background profile extraction.
+
+        allow_restart: offer the restart_bot tool (text path only).
+        extract_profile_from: user text to feed background profile extraction;
+        None disables it (reactions carry no profile signal)."""
+        async with _safe_typing(channel):
+            rag_docs = await async_retrieve(channel.id, query, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
+            rag_msgs = await async_retrieve(channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message", before_ts=history_cutoff_ts)
+
+            # Token budget: trim RAG messages (least-relevant last) if the
+            # estimated payload exceeds MAX_CONTEXT_TOKENS. Docs are trimmed
+            # after messages if still over. Estimate: chars / 4 ≈ tokens.
+            max_ctx = os.getenv("MAX_CONTEXT_TOKENS")
+            if max_ctx:
+                max_ctx = int(max_ctx)
+                from AIfunc.responses import BASE_SYSTEM_PROMPT
+                fixed_chars = (
+                    len(BASE_SYSTEM_PROMPT) +
+                    sum(len(m.get("content") or "") for m in message_history) +
+                    len(prompt_content)
+                )
+                budget_chars = max_ctx * 4 - fixed_chars
+                # Trim RAG messages from the tail (lowest relevance after decay sort)
+                while rag_msgs and sum(len(s) for s in rag_docs + rag_msgs) > budget_chars:
+                    rag_msgs.pop()
+                # If still over, trim docs from the tail
+                while rag_docs and sum(len(s) for s in rag_docs + rag_msgs) > budget_chars:
+                    rag_docs.pop()
+
+            rag_context = rag_docs + rag_msgs or None
+
+            est_tokens = (
+                sum(len(s) for s in (rag_docs + rag_msgs)) +
+                sum(len(m.get("content") or "") for m in message_history) +
+                len(prompt_content)
+            ) // 4
+            logger.debug(
+                "context: %d history msgs, %d rag_msgs, %d rag_docs, ~%d tokens",
+                len(message_history), len(rag_msgs), len(rag_docs), est_tokens
+            )
+
+            message_history.append({"role": "user", "content": prompt_content})
+
+            user_ctx = await asyncio.to_thread(get_user_context, author.id, author.display_name)
+            debate_ctx = await asyncio.to_thread(get_debate_context, channel.id)
+
+            ch_state = self.bot.channel_image_state.get(channel.id, {})
+            tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL]
+            if allow_restart:
+                tools.append(_RESTART_TOOL)
+            if ch_state.get("last_transformed") or ch_state.get("last_generated"):
+                tools.append(_TRANSFORM_TOOL)
+
             gpt_response, tool_calls = await generate_gpt_response(
                 message_history, channel_behaviour, rag_context=rag_context, tools=tools,
                 user_context=user_ctx, debate_context=debate_ctx,
@@ -389,15 +342,61 @@ class ChatCog(commands.Cog):
                     "suggest_activity": _make_suggest_executor(channel.id),
                 }
             )
+
+            restart_requested = False
+            for tc in tool_calls:
+                if tc.function.name == "generate_image":
+                    prompt = json.loads(tc.function.arguments).get("prompt", "")
+                    image_result = await generate_image(prompt)
+                    if isinstance(image_result, bytes):
+                        self.bot.channel_image_state.setdefault(channel.id, {})["last_generated"] = image_result
+                        file = discord.File(io.BytesIO(image_result), filename="generated.png")
+                        img_msg = await channel.send("Generated Image", file=file)
+                        await async_store_message(channel.id, "assistant", f"[generated image for prompt: {prompt}]", img_msg.id)
+                    elif isinstance(image_result, str):
+                        await channel.send(image_result)
+
+                elif tc.function.name == "transform_image":
+                    instructions = json.loads(tc.function.arguments).get("instructions", "")
+                    last_image = ch_state.get("last_transformed") or ch_state.get("last_generated")
+                    image_result = await transform_image(last_image, instructions)
+                    if isinstance(image_result, bytes):
+                        self.bot.channel_image_state.setdefault(channel.id, {})["last_transformed"] = image_result
+                        file = discord.File(io.BytesIO(image_result), filename="transformed.png")
+                        img_msg = await channel.send("Transformed Image", file=file)
+                        await async_store_message(channel.id, "assistant", f"[transformed image: {instructions}]", img_msg.id)
+                    elif isinstance(image_result, str):
+                        await channel.send(image_result)
+
+                elif tc.function.name == "restart_bot":
+                    if allow_restart and _is_bot_owner(author.id):
+                        restart_requested = True
+                    else:
+                        await channel.send("I'd love to, but only my owner can ask me to do that.")
+
             if gpt_response:
                 await _maybe_send_degradation_notice(channel)
-                sent = await channel.send(gpt_response)
+                chunks = split_message(gpt_response)
+                sent = await channel.send(chunks[0])
+                await asyncio.sleep(RATE_LIMIT)
                 await async_store_message(channel.id, "assistant", gpt_response, sent.id,
-                                          context_snippet=prompt[:200])
+                                         context_snippet=context_snippet)
                 await asyncio.to_thread(mark_surfaced, channel.id, gpt_response)
-        except Exception:
-            logger.exception("_handle_reaction failed")
-            await channel.send(format_error_message(Exception("reaction handler error")))
+                for chunk in chunks[1:]:
+                    await channel.send(chunk)
+                    await asyncio.sleep(RATE_LIMIT)
+                if extract_profile_from:
+                    asyncio.create_task(extract_and_update(
+                        author.id, author.display_name,
+                        extract_profile_from, gpt_response, os.getenv("MODEL_CHAT", "")
+                    ))
+
+            if restart_requested:
+                if not gpt_response:
+                    await channel.send("Be right back!")
+                await asyncio.sleep(RATE_LIMIT)
+                logger.info("restart_bot requested by %s (%d)", author.display_name, author.id)
+                os.execv(sys.executable, [sys.executable] + sys.argv)
 
     @commands.Cog.listener()
     async def on_message(self, message):
@@ -473,118 +472,17 @@ class ChatCog(commands.Cog):
             await async_store_message(message.channel.id, "user", message.content, message.id,
                                       context_snippet=last_assistant, author=message.author.display_name)
 
-            async with _safe_typing(message.channel):
-                query = message.content or ""
-
-                rag_docs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_DOC_CONTEXT", "5")), doc_type="document")
-                rag_msgs = await async_retrieve(message.channel.id, query, k=int(os.getenv("RAG_MESSAGE_CONTEXT", 50)), doc_type="message", before_ts=history_cutoff_ts)
-
-                # Token budget: trim RAG messages (least-relevant last) if the
-                # estimated payload exceeds MAX_CONTEXT_TOKENS. Docs are trimmed
-                # after messages if still over. Estimate: chars / 4 ≈ tokens.
-                max_ctx = os.getenv("MAX_CONTEXT_TOKENS")
-                if max_ctx:
-                    max_ctx = int(max_ctx)
-                    from AIfunc.responses import BASE_SYSTEM_PROMPT
-                    fixed_chars = (
-                        len(BASE_SYSTEM_PROMPT) +
-                        sum(len(m.get("content") or "") for m in message_history) +
-                        len(message.content or "")
-                    )
-                    budget_chars = max_ctx * 4 - fixed_chars
-                    # Trim RAG messages from the tail (lowest relevance after decay sort)
-                    while rag_msgs and sum(len(s) for s in rag_docs + rag_msgs) > budget_chars:
-                        rag_msgs.pop()
-                    # If still over, trim docs from the tail
-                    while rag_docs and sum(len(s) for s in rag_docs + rag_msgs) > budget_chars:
-                        rag_docs.pop()
-
-                rag_context = rag_docs + rag_msgs or None
-
-                est_tokens = (
-                    sum(len(s) for s in (rag_docs + rag_msgs)) +
-                    sum(len(m.get("content") or "") for m in message_history) +
-                    len(message.content or "")
-                ) // 4
-                logger.debug(
-                    "context: %d history msgs, %d rag_msgs, %d rag_docs, ~%d tokens",
-                    len(message_history), len(rag_msgs), len(rag_docs), est_tokens
-                )
-
-                message_history.append({"role": "user", "content": f"{message.author.display_name}: {message.content}"})
-
-                user_ctx = await asyncio.to_thread(
-                    get_user_context, message.author.id, message.author.display_name
-                )
-                debate_ctx = await asyncio.to_thread(get_debate_context, message.channel.id)
-
-                ch_state = self.bot.channel_image_state.get(message.channel.id, {})
-                tools = [_GENERATE_TOOL, _SEARCH_TOOL, _SUGGEST_TOOL, _RESTART_TOOL]
-                if ch_state.get("last_transformed") or ch_state.get("last_generated"):
-                    tools.append(_TRANSFORM_TOOL)
-
-                gpt_response, tool_calls = await generate_gpt_response(
-                    message_history, channel_behaviour, rag_context=rag_context, tools=tools,
-                    user_context=user_ctx, debate_context=debate_ctx,
-                    auto_resolve={
-                        "google_search": _execute_search,
-                        "suggest_activity": _make_suggest_executor(message.channel.id),
-                    }
-                )
-
-                restart_requested = False
-                for tc in tool_calls:
-                    if tc.function.name == "generate_image":
-                        prompt = json.loads(tc.function.arguments).get("prompt", "")
-                        image_result = await generate_image(prompt)
-                        if isinstance(image_result, bytes):
-                            self.bot.channel_image_state.setdefault(message.channel.id, {})["last_generated"] = image_result
-                            file = discord.File(io.BytesIO(image_result), filename="generated.png")
-                            img_msg = await message.channel.send("Generated Image", file=file)
-                            await async_store_message(message.channel.id, "assistant", f"[generated image for prompt: {prompt}]", img_msg.id)
-                        elif isinstance(image_result, str):
-                            await message.channel.send(image_result)
-
-                    elif tc.function.name == "transform_image":
-                        instructions = json.loads(tc.function.arguments).get("instructions", "")
-                        last_image = ch_state.get("last_transformed") or ch_state.get("last_generated")
-                        image_result = await transform_image(last_image, instructions)
-                        if isinstance(image_result, bytes):
-                            self.bot.channel_image_state.setdefault(message.channel.id, {})["last_transformed"] = image_result
-                            file = discord.File(io.BytesIO(image_result), filename="transformed.png")
-                            img_msg = await message.channel.send("Transformed Image", file=file)
-                            await async_store_message(message.channel.id, "assistant", f"[transformed image: {instructions}]", img_msg.id)
-                        elif isinstance(image_result, str):
-                            await message.channel.send(image_result)
-
-                    elif tc.function.name == "restart_bot":
-                        if _is_bot_owner(message.author.id):
-                            restart_requested = True
-                        else:
-                            await message.channel.send("I'd love to, but only my owner can ask me to do that.")
-
-                if gpt_response:
-                    await _maybe_send_degradation_notice(message.channel)
-                    chunks = split_message(gpt_response)
-                    sent = await message.channel.send(chunks[0])
-                    await asyncio.sleep(RATE_LIMIT)
-                    await async_store_message(message.channel.id, "assistant", gpt_response, sent.id,
-                                             context_snippet=message.content[:200])
-                    await asyncio.to_thread(mark_surfaced, message.channel.id, gpt_response)
-                    for chunk in chunks[1:]:
-                        await message.channel.send(chunk)
-                        await asyncio.sleep(RATE_LIMIT)
-                    asyncio.create_task(extract_and_update(
-                        message.author.id, message.author.display_name,
-                        message.content, gpt_response, os.getenv("MODEL_CHAT", "")
-                    ))
-
-                if restart_requested:
-                    if not gpt_response:
-                        await message.channel.send("Be right back!")
-                    await asyncio.sleep(RATE_LIMIT)
-                    logger.info("restart_bot requested by %s (%d)", message.author.display_name, message.author.id)
-                    os.execv(sys.executable, [sys.executable] + sys.argv)
+            await self._run_llm_flow(
+                message.channel, message.author,
+                query=message.content or "",
+                prompt_content=f"{message.author.display_name}: {message.content}",
+                message_history=message_history,
+                history_cutoff_ts=history_cutoff_ts,
+                channel_behaviour=channel_behaviour,
+                context_snippet=(message.content or "")[:200],
+                allow_restart=True,
+                extract_profile_from=message.content,
+            )
 
     @commands.Cog.listener()
     async def on_command_error(self, ctx, error):
