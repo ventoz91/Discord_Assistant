@@ -27,6 +27,7 @@ for extension in [
     'cogs.servers',
     'cogs.fun',
     'cogs.rag',
+    'cogs.reminders',
 ]:
     bot.load_extension(extension)
 
