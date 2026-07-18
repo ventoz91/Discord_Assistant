@@ -9,7 +9,7 @@ import io
 import json
 import asyncio
 import aiohttp
-from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, SUPPORTED_DOC_EXTENSIONS
+from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, SUPPORTED_DOC_EXTENSIONS, IMAGE_EXTENSIONS
 
 logger = logging.getLogger("bot.chat")
 
@@ -344,7 +344,7 @@ class ChatCog(commands.Cog):
         image_processed = False
         if message.attachments and should_respond:
             for attachment in message.attachments:
-                if attachment.filename.lower().endswith(('.png', '.jpg', '.jpeg', '.webp')):
+                if attachment.filename.lower().endswith(IMAGE_EXTENSIONS):
                     async with _safe_typing(message.channel):
                         logger.info("processing image: %s", attachment.filename)
                         base64_image = await encode_discord_image(attachment.url)
@@ -356,7 +356,8 @@ class ChatCog(commands.Cog):
                         await _maybe_send_degradation_notice(message.channel)
                         sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
                         if response_text:
-                            await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}", message.id)
+                            await async_store_message(message.channel.id, "user", f"[shared image: {attachment.filename}] {instructions}", message.id,
+                                                      author=message.author.display_name)
                             await async_store_message(message.channel.id, "assistant", f"[image analysis: {attachment.filename}] {response_text}", sent_analysis.id)
                         image_processed = True
                         break
@@ -387,7 +388,7 @@ class ChatCog(commands.Cog):
                 (m["content"] for m in reversed(message_history) if m["role"] == "assistant"), None
             )
             await async_store_message(message.channel.id, "user", message.content, message.id,
-                                      context_snippet=last_assistant)
+                                      context_snippet=last_assistant, author=message.author.display_name)
 
             async with _safe_typing(message.channel):
                 query = message.content or ""
@@ -427,7 +428,7 @@ class ChatCog(commands.Cog):
                     len(message_history), len(rag_msgs), len(rag_docs), est_tokens
                 )
 
-                message_history.append({"role": "user", "content": message.content})
+                message_history.append({"role": "user", "content": f"{message.author.display_name}: {message.content}"})
 
                 user_ctx = await asyncio.to_thread(
                     get_user_context, message.author.id, message.author.display_name

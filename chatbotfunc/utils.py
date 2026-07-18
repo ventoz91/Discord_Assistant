@@ -17,6 +17,20 @@ SUPPORTED_DOC_EXTENSIONS = frozenset({
     '.sh', '.toml', '.ini', '.cfg', '.pdf',
 })
 
+IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp', '.gif')
+
+
+def describe_extras(message) -> str:
+    """Placeholders for non-text content so attachment/sticker-only messages
+    don't vanish from history — the model at least sees they happened."""
+    parts = []
+    for att in message.attachments:
+        kind = "image" if att.filename.lower().endswith(IMAGE_EXTENSIONS) else "file"
+        parts.append(f"[shared {kind}: {att.filename}]")
+    for sticker in getattr(message, "stickers", ()):
+        parts.append(f"[sticker: {sticker.name}]")
+    return " ".join(parts)
+
 
 def split_message(message_content, max_length=1995):
     if not message_content.strip():
@@ -129,9 +143,19 @@ async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: 
     async for message in channel.history(limit=history_length * 2):
         if message.id == exclude_message_id:
             continue
-        if len(message_history) < history_length and message.content:
-            message_history.append({"role": "user" if message.author != bot.user else "assistant", "content": message.content})
-            oldest_ts = int(message.created_at.timestamp())
+        if len(message_history) >= history_length:
+            continue
+        extras = describe_extras(message)
+        content = f"{message.content} {extras}".strip() if extras else message.content
+        if not content:
+            continue
+        if message.author != bot.user:
+            role = "user"
+            content = f"{message.author.display_name}: {content}"
+        else:
+            role = "assistant"
+        message_history.append({"role": role, "content": content})
+        oldest_ts = int(message.created_at.timestamp())
     message_history = message_history[::-1]
     if return_cutoff:
         return message_history, oldest_ts

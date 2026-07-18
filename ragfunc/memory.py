@@ -116,12 +116,16 @@ class ChannelMemory:
 
     # ── Writing ───────────────────────────────────────────────────────────────
 
-    def store_message(self, role: str, content: str, message_id: int = None, context_snippet: str = None):
+    def store_message(self, role: str, content: str, message_id: int = None, context_snippet: str = None, author: str = None):
         """Store a single Discord message. Skips empty or low-value content.
 
         context_snippet: a short excerpt of the preceding message (≤200 chars),
         stored in metadata and prepended to retrieved results so the model sees
         what prompted each retrieved entry rather than an isolated fragment.
+
+        author: display name of the human speaker; prefixed onto the stored
+        content ("Name: message") after the quality filters so name length
+        can't sneak filler past them.
         """
         if not content or not content.strip():
             return
@@ -130,6 +134,8 @@ class ChannelMemory:
         # Short bot replies ("Got it", "I'm not sure") aren't worth indexing
         if role == "assistant" and len(content.strip()) < 40:
             return
+        if author and role == "user":
+            content = f"{author}: {content}"
         doc_id = f"msg-{message_id}" if message_id else f"msg-{int(time.time() * 1000)}"
         expires_at = int(time.time()) + MESSAGE_TTL_DAYS * 86400
         meta = {"type": "message", "role": role, "ts": int(time.time()), "expires_at": expires_at}
@@ -302,9 +308,9 @@ def list_channel_ids() -> list[int]:
 
 # ── Async helpers (run DB ops in thread so they don't block the event loop) ──
 
-async def async_store_message(channel_id: int, role: str, content: str, message_id: int = None, context_snippet: str = None):
+async def async_store_message(channel_id: int, role: str, content: str, message_id: int = None, context_snippet: str = None, author: str = None):
     mem = ChannelMemory(channel_id)
-    await asyncio.to_thread(mem.store_message, role, content, message_id, context_snippet)
+    await asyncio.to_thread(mem.store_message, role, content, message_id, context_snippet, author)
 
 
 async def async_store_document(channel_id: int, text: str, source: str = "upload") -> int:
