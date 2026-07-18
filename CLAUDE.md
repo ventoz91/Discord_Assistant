@@ -27,6 +27,12 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `VIDEO_FRAMES` — Frames sampled evenly across a shared video for vision analysis (default: 5). Set to 1 for first-frame only (cheapest).
 - `REACTION_RESPONSES` — `true` / `false` — emoji reaction responses (default: `true`)
 - `LOG_LEVEL` — File log level: `DEBUG` / `INFO` / `WARNING` / `ERROR` (default: `WARNING`). Console always shows INFO+.
+- `MAX_AGENT_TURNS` — Max follow-up rounds in the agentic tool loop (default: 4). The model may chain auto-resolved tools (search → refine → search) up to this many extra LLM calls; the final round withholds auto tools to force an answer.
+- `REMINDER_CHECK_SECONDS` — Poll interval for due reminders (default: 30). Reminders stored in `data/reminders.json` (gitignored).
+- `MORNING_PAPER_CHANNEL_IDS` — Comma-separated channels that get a daily in-character recap. Unset = feature disabled.
+- `MORNING_PAPER_HOUR` — Server-local hour at/after which the daily edition posts (default: 9).
+- `MORNING_PAPER_MIN_MESSAGES` — Skip the day's edition below this many messages in 24h (default: 15).
+- `MORNING_PAPER_MAX_INPUT_CHARS` / `MORNING_PAPER_MAX_TOKENS` — Input/output caps for the recap LLM call (defaults: 12000 / 600). State in `data/morning_paper_state.json` prevents double-posting.
 
 **RAG Memory**
 - `HISTORYLENGTH` — Recent Discord messages fetched directly per response (default: 30)
@@ -146,9 +152,15 @@ Per-channel ChromaDB collections in `data/chroma/`. Singleton client (`_get_clie
 
 `main.py` (~30 lines): initialises `bridge.Bot`, sets shared state, calls `bot.load_extension()` for all cogs, calls `bot.run()`.
 
+**Tests:** `tests/` (pytest + pytest-asyncio, `asyncio_mode = auto`). Pure-logic coverage of history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), reminders, profiles, and morning-paper scheduling — no Discord/network/Chroma needed. Run with `python -m pytest -q`. Dev deps in `requirements-dev.txt`; runtime deps in `requirements.txt` are fully pinned.
+
+**Startup idempotency:** `on_ready` re-fires on gateway re-identify; `ChatCog._background_started` guards the background loops (summarizer, debate scanner, morning paper) and the watcher/monitor `start()` methods also self-guard, so reconnects never duplicate tasks.
+
 ### Cog Layout
 
 - **`cogs/chat.py`** — `ChatCog`: queue-based message handling; `_enqueue()` pushes zero-arg callables onto per-channel `asyncio.Queue`; `_process_queue` drains sequentially. `on_message` and `on_reaction_add` both enqueue. `_handle_message` and `_handle_reaction` share the same flow: resolve personality, fetch history (with recency cutoff), retrieve RAG (decay-aware, history-deduplicated), fetch user profile, call `generate_gpt_response` with full tool set, handle tool calls, store response, fire background profile extraction. `on_ready` starts `summarizer_loop` task. Defines `_GENERATE_TOOL`, `_TRANSFORM_TOOL`, `_SEARCH_TOOL`, `_SUGGEST_TOOL`, `_RESTART_TOOL`.
+
+Both text and reaction paths share `_run_llm_flow` (RAG retrieval + token budgeting, context assembly, generation, tool-call handling, chunked send, storage, `mark_surfaced`, background profile extraction); the wrappers differ only in prompt construction, restart availability, and profile extraction. Tool schemas and executors live in **`cogs/chat_tools.py`**. Sticker-only messages and lone custom emoji (`<:name:id>`) are vision-analyzed via their CDN artwork. `generate_gpt_response` runs an agentic loop: auto-resolvable tools (search, suggest) execute and feed back for up to `MAX_AGENT_TURNS` follow-up rounds so the model can chain calls.
 
 `_RESTART_TOOL` (`restart_bot`) lets the model restart the bot process when a user explicitly and politely asks it to (text path only). The executor checks `message.author.id` against `BOT_OWNER_IDS`; non-owners get an in-character refusal. On approval, the bot sends a goodbye message, then calls `os.execv(sys.executable, [sys.executable] + sys.argv)` to re-exec the process in place — this also picks up any code changes since the last start. `bot.close()` is deliberately skipped: it raced with background tasks (Minecraft/Satisfactory monitors) hitting the now-closed HTTP session, crashing `bot.run()` with a "Session is closed" traceback before `os.execv` could run. Sockets are non-inheritable (CLOEXEC) by default, so `os.execv` cleans up the gateway connection without that step.
 - **`cogs/images.py`** — `generate`, `transform`, `image` commands. `transform` has separate prefix (reads `ctx.message.attachments`) and slash (explicit `attachment` option) implementations.
@@ -173,6 +185,8 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 - **`chatbotfunc/utils.py`** — `fetch_message_history(channel, bot, exclude_message_id, return_cutoff)` — optionally excludes one message ID and returns the oldest in-window timestamp as a recency cutoff. Human messages are prefixed with the author's display name (`Knova: ...`) so the model can track speakers in group chats; attachment/sticker-only messages appear as placeholders (`[shared image: cat.png]`, `[sticker: wave]`) via `describe_extras()` instead of being dropped. `IMAGE_EXTENSIONS` / `VIDEO_EXTENSIONS` tuples shared with the vision path in `chat.py`. `async_chat_completion()`; `split_message()`; `format_error_message()`; `encode_discord_image()` (async, aiohttp; PIL converts everything — including animated GIF first frames — to JPEG); `encode_video_frames()` (ffprobe duration + `VIDEO_FRAMES` ffmpeg seeks in parallel, evenly spread start→~95%, each frame → base64 JPEG; falls back to first frame if duration unprobeable, empty list on total failure); `SUPPORTED_DOC_EXTENSIONS` frozenset.
 - **`chatbotfunc/personalitymanager.py`** — `PersonalityManager(env_path)`: `data/personalities.json` is the source of truth; auto-migrates from `.env` on first run; `get_active()` / `set_active()`; `get_channel_personality()` / `set_channel_personality()` / `clear_channel_personality()` with in-memory pin cache (invalidated on write).
 - **`chatbotfunc/profiles.py`** — `get_user_context(user_id, display_name) -> str | None`: reads `data/user_profiles.json`, returns formatted fact string for system prompt injection. `extract_and_update(user_id, display_name, user_msg, bot_msg, model)`: async background task; sends extraction prompt to LLM, parses JSON array of new facts, merges into profile file.
+- **`chatbotfunc/reminders.py`** — reminder store (`data/reminders.json`), `parse_duration`/`format_duration`, `reminder_loop(bot)`: polls every `REMINDER_CHECK_SECONDS`, delivers due reminders in the channel personality (plain fallback on LLM failure), owns lateness if delivered >2 min late. Commands in `cogs/reminders.py`.
+- **`chatbotfunc/morning_paper.py`** — `morning_paper_loop(bot)`: daily in-character recap per channel in `MORNING_PAPER_CHANNEL_IDS`; last-24h history + ongoing-threads context → LLM; skips quiet days; `data/morning_paper_state.json` prevents double posts.
 - **`chatbotfunc/summarizer.py`** — `summarizer_loop(model)`: background coroutine; `summarize_channel(channel_id, model)`: fetches expiring messages, applies skip/force logic using `data/summarizer_state.json`, calls LLM, stores permanent summary document, deletes originals.
 - **`chatbotfunc/debates.py`** — `debate_scanner_loop(bot, model)`: background coroutine; `scan_channel(bot, channel_id, model)`: pulls channel history since the last scan directly from Discord, sends it plus the existing tracked list to an LLM extraction prompt, applies returned `new`/`update`/`resolve` actions to `data/debates.json`, caps entries per channel. `get_debate_context(channel_id) -> str | None`: formats unresolved entries not surfaced within the cooldown window for system-prompt injection. `mark_surfaced(channel_id, response_text)`: fuzzy-matches topic words against a sent response and stamps `last_surfaced_ts` so the same callback isn't repeated immediately.
 - **`ragfunc/memory.py`** — `ChannelMemory` (ChromaDB wrapper, singleton client via `_get_client()`): `store_message(role, content, message_id, context_snippet, author)` (author display name prefixed onto user content after the quality filters), `store_document(text, source)`, `retrieve(query, k, doc_type, before_ts)` (decay + threshold filter), `get_expiring(before_ts)`, `delete_by_ids(ids)`, `clear_documents()`, `clear_all()`; module-level `list_channel_ids()`; async helpers for all methods.
@@ -250,6 +264,11 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
 | `!start_emucoach` / `!stop_emucoach` / `!emucoach_status` | `/emucoach start\|stop\|status` | Manage EmuCoach WoW repack on the Windows VM (SSH) |
 | `!commands` / `!help` | `/commands` / `/help` | Show all bot commands (formatted text list) |
 | `!sandwich` | `/sandwich` | Generate a random sandwich with AI image |
+| `!remind <dur> <text>` | `/remind` | Set a reminder (s/m/h/d/w, compounds like `1h30m`); delivered in character |
+| `!reminders` | `/reminders` | List your pending reminders |
+| `!unremind <id>` | `/unremind` | Cancel one of your reminders |
+| `!whoami` | `/whoami` | See the profile facts stored about you |
+| `!forget <n\|all>` | `/forget` | Delete one stored fact about you, or all of them |
 | `!learn [text]` | `/learn` | Store text or file in RAG memory |
 | `!memory` | `/memory` | Show memory stats for this channel |
 | `!summarize` | `/summarize` | TL;DR of recent conversation |
