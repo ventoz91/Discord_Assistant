@@ -18,6 +18,7 @@ SUPPORTED_DOC_EXTENSIONS = frozenset({
 })
 
 IMAGE_EXTENSIONS = ('.png', '.jpg', '.jpeg', '.webp', '.gif')
+VIDEO_EXTENSIONS = ('.mp4', '.webm', '.mov')
 
 
 def describe_extras(message) -> str:
@@ -28,7 +29,7 @@ def describe_extras(message) -> str:
         ctype = getattr(att, "content_type", None) or ""
         if ctype.startswith("image/") or att.filename.lower().endswith(IMAGE_EXTENSIONS):
             kind = "image"
-        elif ctype.startswith("video/") or att.filename.lower().endswith(('.mp4', '.webm', '.mov')):
+        elif ctype.startswith("video/") or att.filename.lower().endswith(VIDEO_EXTENSIONS):
             kind = "video"
         else:
             kind = "file"
@@ -126,19 +127,52 @@ def format_error_message(error):
         return "An unexpected error occurred in formatting the error."
 
 
+def _jpeg_b64(raw: bytes) -> str:
+    """Decode raw image bytes with PIL, cap at 1000px, return base64 JPEG."""
+    image = Image.open(io.BytesIO(raw)).convert('RGB')
+    if max(image.size) > 1000:
+        image.thumbnail((1000, 1000))
+    buffered = io.BytesIO()
+    image.save(buffered, format="JPEG")
+    return base64.b64encode(buffered.getvalue()).decode('utf-8')
+
+
 async def encode_discord_image(image_url: str):
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(image_url) as resp:
                 content = await resp.read()
-        image = Image.open(io.BytesIO(content)).convert('RGB')
-        if max(image.size) > 1000:
-            image.thumbnail((1000, 1000))
-        buffered = io.BytesIO()
-        image.save(buffered, format="JPEG")
-        return base64.b64encode(buffered.getvalue()).decode('utf-8')
+        return _jpeg_b64(content)
     except Exception:
         logger.exception("encode_discord_image failed")
+
+
+async def encode_video_first_frame(video_url: str) -> str | None:
+    """Extract the first frame of a video URL via ffmpeg (which reads the URL
+    directly) and return it as base64 JPEG. None if ffmpeg is unavailable or
+    extraction fails — callers fall back to treating the video as unseen."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-loglevel", "error", "-i", video_url,
+            "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            out, err = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            logger.warning("ffmpeg timed out extracting frame from %s", video_url)
+            return None
+        if proc.returncode != 0 or not out:
+            logger.warning("ffmpeg frame extraction failed: %s", err.decode(errors="replace")[:200])
+            return None
+        return _jpeg_b64(out)
+    except FileNotFoundError:
+        logger.warning("ffmpeg not installed; cannot extract video frame")
+        return None
+    except Exception:
+        logger.exception("encode_video_first_frame failed")
+        return None
         return None
 
 

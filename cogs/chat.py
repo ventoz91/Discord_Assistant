@@ -10,7 +10,7 @@ import io
 import json
 import asyncio
 import aiohttp
-from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, SUPPORTED_DOC_EXTENSIONS, IMAGE_EXTENSIONS
+from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, encode_video_first_frame, SUPPORTED_DOC_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 
 logger = logging.getLogger("bot.chat")
 
@@ -196,17 +196,22 @@ class ChatCog(commands.Cog):
         self._channel_queues: dict[int, asyncio.Queue] = {}
         self._channel_workers: dict[int, asyncio.Task] = {}
 
-    async def _analyze_and_reply(self, message, image_url, label, channel_behaviour, url_only_message=False) -> bool:
-        """Vision-analyze an image URL and send the response. Returns True when
-        a reply was sent; False (fall through to the text path) if the image
-        couldn't be fetched/decoded."""
+    async def _analyze_and_reply(self, message, image_url, label, channel_behaviour, url_only_message=False, kind="image") -> bool:
+        """Vision-analyze an image (or a video's first frame) and send the
+        response. Returns True when a reply was sent; False (fall through to
+        the text path) if the media couldn't be fetched/decoded."""
         async with _safe_typing(message.channel):
-            logger.info("processing image: %s", label)
-            base64_image = await encode_discord_image(image_url)
+            logger.info("processing %s: %s", kind, label)
+            if kind == "video":
+                base64_image = await encode_video_first_frame(image_url)
+                default_prompt = "This is the first frame of a short video. What's in it?"
+            else:
+                base64_image = await encode_discord_image(image_url)
+                default_prompt = "What's in this image?"
             if not base64_image:
                 return False
             # A bare GIF/embed URL isn't an instruction — use the default prompt
-            instructions = message.content if message.content and not url_only_message else "What's in this image?"
+            instructions = message.content if message.content and not url_only_message else default_prompt
             message_history = await fetch_message_history(message.channel, self.bot)
             response_text = await analyze_image(
                 base64_image, instructions, message_history, channel_behaviour
@@ -214,9 +219,9 @@ class ChatCog(commands.Cog):
             await _maybe_send_degradation_notice(message.channel)
             sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
             if response_text:
-                await async_store_message(message.channel.id, "user", f"[shared image: {label}] {instructions}", message.id,
+                await async_store_message(message.channel.id, "user", f"[shared {kind}: {label}] {instructions}", message.id,
                                           author=message.author.display_name)
-                await async_store_message(message.channel.id, "assistant", f"[image analysis: {label}] {response_text}", sent_analysis.id)
+                await async_store_message(message.channel.id, "assistant", f"[{kind} analysis: {label}] {response_text}", sent_analysis.id)
             return True
 
     async def _embed_image_source(self, message):
@@ -395,9 +400,15 @@ class ChatCog(commands.Cog):
                 # content_type is Discord's real MIME type — GIF-picker sends
                 # and oddly named files often don't match by extension alone.
                 ctype = attachment.content_type or ""
-                if ctype.startswith("image/") or attachment.filename.lower().endswith(IMAGE_EXTENSIONS):
+                fname = attachment.filename.lower()
+                if ctype.startswith("image/") or fname.endswith(IMAGE_EXTENSIONS):
                     image_processed = await self._analyze_and_reply(
                         message, attachment.url, attachment.filename, channel_behaviour
+                    )
+                    break
+                if ctype.startswith("video/") or fname.endswith(VIDEO_EXTENSIONS):
+                    image_processed = await self._analyze_and_reply(
+                        message, attachment.url, attachment.filename, channel_behaviour, kind="video"
                     )
                     break
 
