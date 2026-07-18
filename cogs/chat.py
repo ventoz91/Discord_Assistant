@@ -195,6 +195,7 @@ class ChatCog(commands.Cog):
         self.bot = bot
         self._channel_queues: dict[int, asyncio.Queue] = {}
         self._channel_workers: dict[int, asyncio.Task] = {}
+        self._background_started = False
 
     async def _analyze_and_reply(self, message, image_url, label, channel_behaviour, url_only_message=False, kind="image") -> bool:
         """Vision-analyze an image (or a video's first frame) and send the
@@ -299,6 +300,13 @@ class ChatCog(commands.Cog):
     @commands.Cog.listener()
     async def on_ready(self):
         logger.info("Logged in as %s | personality: %s", self.bot.user.name, self.bot.chatgpt_behaviour)
+        # on_ready re-fires on every gateway re-identify (e.g. after an outage);
+        # background loops must only be started once per process or reconnects
+        # spawn duplicates (double event announcements, doubled scan costs).
+        if self._background_started:
+            logger.info("on_ready re-fired — background tasks already running, skipping start")
+            return
+        self._background_started = True
         asyncio.create_task(summarizer_loop(os.getenv("MODEL_CHAT", "")))
         asyncio.create_task(debate_scanner_loop(self.bot, os.getenv("MODEL_CHAT", "")))
 

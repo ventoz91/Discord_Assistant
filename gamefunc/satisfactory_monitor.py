@@ -28,6 +28,8 @@ class SatisfactoryMonitor:
         self._task: asyncio.Task | None = None
 
     def start(self, bot, channel_id: int):
+        if self._task and not self._task.done():
+            return
         self._task = asyncio.create_task(self._poll_loop(bot, channel_id))
 
     def stop(self):
