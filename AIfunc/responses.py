@@ -123,11 +123,13 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
     if user_context:
         system_content += f"\n\nUSER PROFILE:\n{user_context}"
     messages = [{"role": "system", "content": system_content}] + message_history
+    # base64_image: single base64 string, or a list of them (e.g. sampled video frames)
+    images = base64_image if isinstance(base64_image, list) else [base64_image]
     messages.append({
         "role": "user",
-        "content": [
-            {"type": "text", "text": instructions},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}},
+        "content": [{"type": "text", "text": instructions}] + [
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img}"}}
+            for img in images
         ],
     })
     try:

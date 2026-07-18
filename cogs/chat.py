@@ -10,7 +10,7 @@ import io
 import json
 import asyncio
 import aiohttp
-from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, encode_video_first_frame, SUPPORTED_DOC_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
+from chatbotfunc.utils import fetch_message_history, split_message, format_error_message, encode_discord_image, encode_video_frames, SUPPORTED_DOC_EXTENSIONS, IMAGE_EXTENSIONS, VIDEO_EXTENSIONS
 
 logger = logging.getLogger("bot.chat")
 
@@ -203,8 +203,12 @@ class ChatCog(commands.Cog):
         async with _safe_typing(message.channel):
             logger.info("processing %s: %s", kind, label)
             if kind == "video":
-                base64_image = await encode_video_first_frame(image_url)
-                default_prompt = "This is the first frame of a short video. What's in it?"
+                frames = await encode_video_frames(image_url)
+                base64_image = frames or None
+                default_prompt = (
+                    f"These are {len(frames)} frames sampled in order from the start, middle, "
+                    "and end of a short video. Describe what happens in it."
+                ) if len(frames) > 1 else "This is the first frame of a short video. What's in it?"
             else:
                 base64_image = await encode_discord_image(image_url)
                 default_prompt = "What's in this image?"

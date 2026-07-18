@@ -147,15 +147,16 @@ async def encode_discord_image(image_url: str):
         logger.exception("encode_discord_image failed")
 
 
-async def encode_video_first_frame(video_url: str) -> str | None:
-    """Extract the first frame of a video URL via ffmpeg (which reads the URL
-    directly) and return it as base64 JPEG. None if ffmpeg is unavailable or
-    extraction fails — callers fall back to treating the video as unseen."""
+async def _extract_video_frame(video_url: str, ts: float | None = None) -> str | None:
+    """Extract one frame at timestamp ts (seconds; None = first frame) via
+    ffmpeg, which reads the URL directly. Returns base64 JPEG or None."""
     try:
+        args = ["ffmpeg", "-loglevel", "error"]
+        if ts:
+            args += ["-ss", f"{ts:.3f}"]
+        args += ["-i", video_url, "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1"]
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-loglevel", "error", "-i", video_url,
-            "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "pipe:1",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
         )
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout=30)
@@ -171,9 +172,35 @@ async def encode_video_first_frame(video_url: str) -> str | None:
         logger.warning("ffmpeg not installed; cannot extract video frame")
         return None
     except Exception:
-        logger.exception("encode_video_first_frame failed")
+        logger.exception("frame extraction failed")
         return None
+
+
+async def _ffprobe_duration(video_url: str) -> float | None:
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1", video_url,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=15)
+        return float(out.strip())
+    except Exception:
         return None
+
+
+async def encode_video_frames(video_url: str, count: int | None = None) -> list[str]:
+    """Sample frames evenly across a video (start → ~95% in) and return them
+    as base64 JPEGs, oldest first. Falls back to just the first frame when the
+    duration can't be probed; empty list if nothing could be extracted."""
+    count = count or int(os.getenv("VIDEO_FRAMES", "5"))
+    duration = await _ffprobe_duration(video_url)
+    if not duration or duration <= 0 or count <= 1:
+        frame = await _extract_video_frame(video_url)
+        return [frame] if frame else []
+    timestamps = [duration * 0.95 * i / (count - 1) for i in range(count)]
+    frames = await asyncio.gather(*(_extract_video_frame(video_url, ts) for ts in timestamps))
+    return [f for f in frames if f]
 
 
 async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: int | None = None, return_cutoff: bool = False):
