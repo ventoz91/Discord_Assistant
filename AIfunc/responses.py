@@ -71,49 +71,69 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         content = choice.content or ""
         tool_calls = choice.tool_calls or []
 
-        # Auto-resolve tools (e.g. web search): execute them and make a second API call
-        # so the model can incorporate the results into its final response.
-        if auto_resolve and tool_calls:
+        # Agentic loop: execute auto-resolvable tools (search, suggest) and feed
+        # results back so the model can chain calls — search, refine, search
+        # again — up to MAX_AGENT_TURNS follow-up rounds. Non-auto tool calls
+        # (image gen, restart) accumulate and are returned to the caller. On
+        # the final allowed round the auto tools are withheld so the model
+        # must produce an answer instead of another tool call.
+        max_turns = int(os.getenv("MAX_AGENT_TURNS", "4"))
+        dispatch = []
+        turn = 0
+        convo = list(messages)
+        while auto_resolve and tool_calls and turn < max_turns:
             resolvable = [tc for tc in tool_calls if tc.function.name in auto_resolve]
-            dispatch = [tc for tc in tool_calls if tc.function.name not in auto_resolve]
-
-            if resolvable:
-                # Build follow-up: include only the resolvable tool calls in the assistant
-                # message so every tool_call_id has a matching tool result.
-                assistant_msg = {
-                    "role": "assistant",
-                    "content": content,
-                    "tool_calls": [
-                        {"id": tc.id, "type": "function",
-                         "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
-                        for tc in resolvable
-                    ]
-                }
-                follow_up = list(messages) + [assistant_msg]
-                for tc in resolvable:
+            dispatch += [tc for tc in tool_calls if tc.function.name not in auto_resolve]
+            if not resolvable:
+                tool_calls = []
+                break
+            turn += 1
+            # Include only the resolvable tool calls in the assistant message
+            # so every tool_call_id has a matching tool result.
+            convo.append({
+                "role": "assistant",
+                "content": content,
+                "tool_calls": [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name, "arguments": tc.function.arguments}}
+                    for tc in resolvable
+                ]
+            })
+            for tc in resolvable:
+                try:
                     result = await auto_resolve[tc.function.name](json.loads(tc.function.arguments))
-                    follow_up.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                except Exception as exc:
+                    logger.exception("auto-resolve tool %s failed", tc.function.name)
+                    result = f"Tool error: {exc}"
+                convo.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
-                # Exclude auto-resolved tools from the follow-up to prevent re-triggering
-                follow_up_tools = [t for t in (tools or []) if t["function"]["name"] not in auto_resolve]
-                follow_up_kwargs = dict(
-                    model=os.getenv("MODEL_CHAT"),
-                    messages=follow_up,
-                    temperature=temperature,
-                    top_p=top_p,
-                    max_completion_tokens=max_tokens,
-                )
-                if follow_up_tools:
-                    follow_up_kwargs["tools"] = follow_up_tools
+            last_round = turn >= max_turns
+            follow_tools = (
+                [t for t in (tools or []) if t["function"]["name"] not in auto_resolve]
+                if last_round else tools
+            )
+            follow_kwargs = dict(
+                model=os.getenv("MODEL_CHAT"),
+                messages=convo,
+                temperature=temperature,
+                top_p=top_p,
+                max_completion_tokens=max_tokens,
+            )
+            if follow_tools:
+                follow_kwargs["tools"] = follow_tools
 
-                follow_up_response = await async_chat_completion(**follow_up_kwargs)
-                if follow_up_response.choices:
-                    follow_up_choice = follow_up_response.choices[0].message
-                    content = follow_up_choice.content or ""
-                    dispatch = dispatch + (follow_up_choice.tool_calls or [])
-                tool_calls = dispatch
+            follow_response = await async_chat_completion(**follow_kwargs)
+            if not follow_response.choices:
+                tool_calls = []
+                break
+            choice = follow_response.choices[0].message
+            content = choice.content or ""
+            tool_calls = choice.tool_calls or []
 
-        return (content, tool_calls) if tools else content
+        # Whatever survived the loop that isn't auto-resolvable goes to the caller
+        remaining = [tc for tc in (tool_calls or [])
+                     if not auto_resolve or tc.function.name not in auto_resolve]
+        return (content, dispatch + remaining) if tools else content
     except Exception as e:
         logger.exception("generate_gpt_response failed")
         err = f"An error occurred while generating a response. Details: {e}"
