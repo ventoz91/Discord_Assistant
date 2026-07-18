@@ -444,6 +444,26 @@ class ChatCog(commands.Cog):
                     message, embed_url, label, channel_behaviour, url_only_message=True
                 )
 
+        # Sticker-only messages: stickers have image URLs (Lottie ones don't
+        # decode — _analyze_and_reply falls through gracefully if PIL fails).
+        if not image_processed and should_respond and message.stickers and not message.attachments:
+            sticker = message.stickers[0]
+            image_processed = await self._analyze_and_reply(
+                message, sticker.url, f"sticker: {sticker.name}", channel_behaviour, url_only_message=True
+            )
+
+        # A message that is nothing but one custom emoji — fetch it from the
+        # CDN and react to the actual artwork instead of the :name: markup.
+        if not image_processed and should_respond and not message.attachments:
+            emoji_match = re.fullmatch(r"<(a?):(\w+):(\d+)>", (message.content or "").strip())
+            if emoji_match:
+                animated, name, emoji_id = emoji_match.groups()
+                ext = "gif" if animated else "png"
+                image_processed = await self._analyze_and_reply(
+                    message, f"https://cdn.discordapp.com/emojis/{emoji_id}.{ext}",
+                    f"custom emoji: {name}", channel_behaviour, url_only_message=True
+                )
+
         if image_processed:
             return
 
