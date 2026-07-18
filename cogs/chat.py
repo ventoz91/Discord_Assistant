@@ -206,16 +206,27 @@ class ChatCog(commands.Cog):
                 frames = await encode_video_frames(image_url)
                 base64_image = frames or None
                 default_prompt = (
-                    f"These are {len(frames)} frames sampled in order from the start, middle, "
-                    "and end of a short video. Describe what happens in it."
-                ) if len(frames) > 1 else "This is the first frame of a short video. What's in it?"
+                    f"Someone just posted a short video in the chat — these are {len(frames)} frames "
+                    "sampled in order from start to end. Work out what happens in it, then react in "
+                    "character as part of the conversation. Don't narrate it frame by frame or "
+                    "inventory its contents — respond the way a person in the chat would, mentioning "
+                    "only what your reaction needs."
+                ) if len(frames) > 1 else (
+                    "Someone just posted a short video in the chat — this is its first frame. React "
+                    "to it in character as part of the conversation, not with a description."
+                )
             else:
                 base64_image = await encode_discord_image(image_url)
-                default_prompt = "What's in this image?"
+                default_prompt = (
+                    "Someone just posted this image in the chat with no comment. React to it in "
+                    "character as part of the conversation — don't describe or inventory it; respond "
+                    "the way a person in the chat would, mentioning only what your reaction needs."
+                )
             if not base64_image:
                 return False
             # A bare GIF/embed URL isn't an instruction — use the default prompt
-            instructions = message.content if message.content and not url_only_message else default_prompt
+            user_caption = message.content if message.content and not url_only_message else None
+            instructions = user_caption or default_prompt
             message_history = await fetch_message_history(message.channel, self.bot)
             response_text = await analyze_image(
                 base64_image, instructions, message_history, channel_behaviour
@@ -223,7 +234,7 @@ class ChatCog(commands.Cog):
             await _maybe_send_degradation_notice(message.channel)
             sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
             if response_text:
-                await async_store_message(message.channel.id, "user", f"[shared {kind}: {label}] {instructions}", message.id,
+                await async_store_message(message.channel.id, "user", f"[shared {kind}: {label}] {user_caption or ''}".strip(), message.id,
                                           author=message.author.display_name)
                 await async_store_message(message.channel.id, "assistant", f"[{kind} analysis: {label}] {response_text}", sent_analysis.id)
             return True
