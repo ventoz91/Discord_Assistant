@@ -234,6 +234,22 @@ class ChannelMemory:
             logger.exception("retrieve failed")
             return []
 
+    def get_by_message_id(self, message_id: int) -> str | None:
+        """Look up a stored message entry by its Discord message ID.
+
+        Used to recover the real content behind a placeholder Discord message
+        (e.g. a generated image posted as just "Generated Image") when that
+        message is still within the raw history window and so wouldn't
+        otherwise surface through retrieve()'s before_ts dedup.
+        """
+        try:
+            result = self._col.get(ids=[f"msg-{message_id}"], include=["documents"])
+            docs = result.get("documents") or []
+            return docs[0] if docs else None
+        except Exception:
+            logger.exception("get_by_message_id failed")
+            return None
+
     def retrieve_messages(self, query: str, k: int = RETRIEVAL_K) -> list[str]:
         return self.retrieve(query, k=k, doc_type="message")
 
@@ -321,6 +337,11 @@ async def async_store_document(channel_id: int, text: str, source: str = "upload
 async def async_retrieve(channel_id: int, query: str, k: int = RETRIEVAL_K, doc_type: str = None, before_ts: int = None) -> list[str]:
     mem = ChannelMemory(channel_id)
     return await asyncio.to_thread(mem.retrieve, query, k, doc_type, before_ts)
+
+
+async def async_get_by_message_id(channel_id: int, message_id: int) -> str | None:
+    mem = ChannelMemory(channel_id)
+    return await asyncio.to_thread(mem.get_by_message_id, message_id)
 
 
 async def async_count(channel_id: int) -> dict:

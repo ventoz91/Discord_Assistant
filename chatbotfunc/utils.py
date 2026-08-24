@@ -9,6 +9,8 @@ import base64
 from PIL import Image
 from discord.ext import commands
 
+from ragfunc.memory import async_get_by_message_id
+
 logger = logging.getLogger("bot.utils")
 
 SUPPORTED_DOC_EXTENSIONS = frozenset({
@@ -221,6 +223,14 @@ async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: 
             content = f"{message.author.display_name}: {content}"
         else:
             role = "assistant"
+            # Generated/transformed images are posted with a bland placeholder;
+            # the real prompt/instructions live only in RAG. Recover it here so
+            # follow-up questions about the image don't hit a placeholder with
+            # no content, regardless of whether RAG retrieval would surface it.
+            if message.content in ("Generated Image", "Transformed Image"):
+                stored = await async_get_by_message_id(channel.id, message.id)
+                if stored:
+                    content = stored.removeprefix("assistant: ")
         message_history.append({"role": role, "content": content})
         oldest_ts = int(message.created_at.timestamp())
     message_history = message_history[::-1]

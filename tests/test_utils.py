@@ -65,6 +65,34 @@ class TestFetchMessageHistory:
         assert len(hist) == 2
         assert hist[-1]["content"] == "A: msg 5"  # newest kept
 
+    async def test_generated_image_placeholder_recovers_stored_prompt(self, bot, monkeypatch):
+        async def fake_lookup(channel_id, message_id):
+            assert (channel_id, message_id) == (42, 1)
+            return "assistant: [generated image for prompt: a poster about trash cans]"
+
+        monkeypatch.setattr("chatbotfunc.utils.async_get_by_message_id", fake_lookup)
+        msgs = [make_message(1, None, "Generated Image", is_bot=True)]
+        hist = await fetch_message_history(FakeChannel(msgs, channel_id=42), bot)
+        assert hist == [{"role": "assistant", "content": "[generated image for prompt: a poster about trash cans]"}]
+
+    async def test_generated_image_placeholder_falls_back_when_not_stored(self, bot, monkeypatch):
+        async def fake_lookup(channel_id, message_id):
+            return None
+
+        monkeypatch.setattr("chatbotfunc.utils.async_get_by_message_id", fake_lookup)
+        msgs = [make_message(1, None, "Generated Image", is_bot=True)]
+        hist = await fetch_message_history(FakeChannel(msgs), bot)
+        assert hist == [{"role": "assistant", "content": "Generated Image"}]
+
+    async def test_normal_bot_reply_skips_lookup(self, bot, monkeypatch):
+        def fail(*args, **kwargs):
+            raise AssertionError("should not look up ordinary bot replies")
+
+        monkeypatch.setattr("chatbotfunc.utils.async_get_by_message_id", fail)
+        msgs = [make_message(1, None, "just a normal reply", is_bot=True)]
+        hist = await fetch_message_history(FakeChannel(msgs), bot)
+        assert hist == [{"role": "assistant", "content": "just a normal reply"}]
+
 
 class TestSplitMessage:
     def test_short_message_untouched(self):

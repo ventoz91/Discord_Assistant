@@ -35,8 +35,9 @@ def make_message(mid, author_name, content, attachments=(), stickers=(), is_bot=
 
 
 class FakeChannel:
-    def __init__(self, messages):
+    def __init__(self, messages, channel_id=42):
         self._messages = messages  # newest first, like Discord
+        self.id = channel_id
 
     async def history(self, limit):
         for m in self._messages[:limit]:
