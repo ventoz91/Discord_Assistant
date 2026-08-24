@@ -11,30 +11,31 @@ class ValheimServer:
         self.port             = os.getenv('VALHEIM_PORT', '2456')
 
     def create_valheim_server_batch_file(self):
+        # Always rewritten (not just when missing) so changes to
+        # VALHEIM_SERVER_NAME/WORLD_NAME/PASSWORD/PORT in .env take effect on
+        # the next start, matching every other config value in this project.
         batch_file_path = os.path.join(self.steam_directory, 'URDediServ.bat')
+        os.makedirs(os.path.dirname(batch_file_path), exist_ok=True)
 
-        if not os.path.exists(batch_file_path):
-            os.makedirs(os.path.dirname(batch_file_path), exist_ok=True)
-
-            with open(batch_file_path, "w") as filepath:
-                filepath.write('@ECHO OFF\n'
-                               'title "valheimserver"\n'
-                               'color a\n'
-                               '\n'
-                               'ECHO UPDATING VALHEIM DEDICATED SERVER\n'
-                               'ECHO ===================================================\n'
-                               f'\ncd /D {self.steam_directory}\n'
-                               'steamcmd +login anonymous +app_update 896660 validate +exit\n'
-                               '\n'
-                               'ECHO STARTING THE SERVER...\n'
-                               'ECHO ===================================================\n'
-                               f'\ncd "{os.path.join(self.steam_directory, "steamapps", "common", "Valheim dedicated server")}"\n'
-                               '\n'
-                               'set SteamAppId=892970\n'
-                               '\n'
-                               'echo "Starting server PRESS CTRL-C to exit"\n'
-                               '\n'
-                               f'valheim_server -nographics -batchmode -name "{self.server_name}" -port {self.port} -world "{self.world_name}" -password "{self.server_password}" -crossplay')
+        with open(batch_file_path, "w") as filepath:
+            filepath.write('@ECHO OFF\n'
+                           'title "valheimserver"\n'
+                           'color a\n'
+                           '\n'
+                           'ECHO UPDATING VALHEIM DEDICATED SERVER\n'
+                           'ECHO ===================================================\n'
+                           f'\ncd /D {self.steam_directory}\n'
+                           'steamcmd +login anonymous +app_update 896660 validate +exit\n'
+                           '\n'
+                           'ECHO STARTING THE SERVER...\n'
+                           'ECHO ===================================================\n'
+                           f'\ncd "{os.path.join(self.steam_directory, "steamapps", "common", "Valheim dedicated server")}"\n'
+                           '\n'
+                           'set SteamAppId=892970\n'
+                           '\n'
+                           'echo "Starting server PRESS CTRL-C to exit"\n'
+                           '\n'
+                           f'valheim_server -nographics -batchmode -name "{self.server_name}" -port {self.port} -world "{self.world_name}" -password "{self.server_password}" -crossplay')
 
         return batch_file_path
 

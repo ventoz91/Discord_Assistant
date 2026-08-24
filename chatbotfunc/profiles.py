@@ -3,11 +3,18 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 
 logger = logging.getLogger("bot.profiles")
 
 _PROFILE_PATH = os.path.join("data", "user_profiles.json")
+
+# Guards every load-mutate-save cycle below so concurrent writers (background
+# extraction, !forget) can't clobber each other's changes with a stale
+# full-file overwrite. A plain threading.Lock (not asyncio.Lock) since
+# delete_fact/clear_facts run synchronously inside asyncio.to_thread workers.
+_LOCK = threading.Lock()
 
 
 def _load() -> dict:
@@ -48,24 +55,43 @@ def get_facts(user_id: int) -> list[str]:
 
 def delete_fact(user_id: int, index: int) -> str | None:
     """Delete fact by 1-based index as shown in !whoami. Returns the removed fact."""
-    profiles = _load()
-    facts = profiles.get(str(user_id), {}).get("facts", [])
-    if not 1 <= index <= len(facts):
-        return None
-    removed = facts.pop(index - 1)
-    _save(profiles)
-    return removed
+    with _LOCK:
+        profiles = _load()
+        facts = profiles.get(str(user_id), {}).get("facts", [])
+        if not 1 <= index <= len(facts):
+            return None
+        removed = facts.pop(index - 1)
+        _save(profiles)
+        return removed
 
 
 def clear_facts(user_id: int) -> int:
     """Delete all stored facts for a user. Returns how many were removed."""
-    profiles = _load()
-    uid = str(user_id)
-    count = len(profiles.get(uid, {}).get("facts", []))
-    if uid in profiles:
-        del profiles[uid]
+    with _LOCK:
+        profiles = _load()
+        uid = str(user_id)
+        count = len(profiles.get(uid, {}).get("facts", []))
+        if uid in profiles:
+            del profiles[uid]
+            _save(profiles)
+        return count
+
+
+def _apply_new_facts(uid: str, display_name: str, new_facts: list[str], max_facts: int):
+    """Merge freshly-extracted facts into the current on-disk state under the lock.
+
+    Reloads from disk here (rather than reusing the pre-LLM-call snapshot) so a
+    concurrent !forget or a second extraction that landed in between isn't lost.
+    """
+    with _LOCK:
+        profiles = _load()
+        if uid not in profiles:
+            profiles[uid] = {"display_name": display_name, "facts": [], "last_updated": 0}
+        profiles[uid]["display_name"] = display_name
+        profiles[uid]["facts"].extend(new_facts)
+        profiles[uid]["facts"] = profiles[uid]["facts"][-max_facts:]
+        profiles[uid]["last_updated"] = int(time.time())
         _save(profiles)
-    return count
 
 
 async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot_msg: str, model: str):
@@ -122,14 +148,6 @@ async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot
     if not new_facts:
         return
 
-    if uid not in profiles:
-        profiles[uid] = {"display_name": display_name, "facts": [], "last_updated": 0}
-
-    profiles[uid]["display_name"] = display_name
-    profiles[uid]["facts"].extend(new_facts)
     max_facts = int(os.getenv("USER_PROFILE_MAX_FACTS", "20"))
-    profiles[uid]["facts"] = profiles[uid]["facts"][-max_facts:]
-    profiles[uid]["last_updated"] = int(time.time())
-
-    await asyncio.to_thread(_save, profiles)
+    await asyncio.to_thread(_apply_new_facts, uid, display_name, new_facts, max_facts)
     logger.info("profile updated for %s (+%d): %s", display_name, len(new_facts), new_facts)

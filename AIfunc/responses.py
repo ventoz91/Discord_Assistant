@@ -199,7 +199,7 @@ async def generate_image(prompt, model="gpt-image-1", size=None, quality=None, n
         logger.warning("image request rejected by OpenAI: %s", msg)
         return msg
 
-    except Exception as e:
+    except Exception:
         logger.exception("generate_image failed")
         return None
 
@@ -237,6 +237,6 @@ async def transform_image(image_bytes: bytes, instructions: str, size=None, qual
         logger.warning("transform request rejected by OpenAI: %s", msg)
         return msg
 
-    except Exception as e:
+    except Exception:
         logger.exception("transform_image failed")
         return None

@@ -1,4 +1,3 @@
-import discord
 from discord.ext import commands, bridge
 import gamefunc.tictactoe as tictactoe
 from gamefunc.snake import SnakeGame
@@ -50,11 +49,15 @@ class GamesCog(commands.Cog):
             await ctx.respond("A game is already in progress in this channel.")
             return
         self.bot.active_games[ctx.channel.id] = True
-        game = AdventureGame(user_id=ctx.author.id)
-        view = AdventureView(game, self.bot, ctx.channel.id)
-        await ctx.defer()
-        msg = await ctx.respond(embed=view.build_embed(), view=view)
-        view.message = await msg.original_response() if hasattr(msg, "original_response") else msg
+        try:
+            game = AdventureGame(user_id=ctx.author.id)
+            view = AdventureView(game, self.bot, ctx.channel.id)
+            await ctx.defer()
+            msg = await ctx.respond(embed=view.build_embed(), view=view)
+            view.message = await msg.original_response() if hasattr(msg, "original_response") else msg
+        except Exception:
+            self.bot.active_games[ctx.channel.id] = False
+            raise
 
 
 def setup(bot):

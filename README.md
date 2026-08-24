@@ -1,28 +1,34 @@
 # Discord Bot
 
-A personal Discord bot with GPT chat, persistent long-term memory, per-user profiles, image generation and transformation, game server management, and in-channel mini-games.
+A personal Discord bot with GPT chat, persistent long-term memory, per-user profiles, image generation and transformation, reminders, a daily in-character channel recap, game server management, and in-channel mini-games.
 
 ## Features
 
 - **GPT chat** — responds in configured channels and always to @mentions; in-character responses shaped by the active personality; per-channel message queue prevents concurrent processing races
+- **Agentic tool loop** — the model can chain tool calls (search → refine → search) across up to `MAX_AGENT_TURNS` follow-up rounds before it has to answer; web search and activity suggestions are auto-resolved internally, image tools are handled by the cog
 - **Long-term RAG memory** — per-channel ChromaDB-backed memory; stores chat history and uploaded documents; semantically relevant context injected on every response; recency decay ensures old messages don't crowd out recent ones; RAG messages and direct history are kept deduplicated so nothing is sent to the model twice
-- **User profiles** — after each exchange, a background LLM call extracts facts about the user (preferences, hobbies, games played, etc.) and stores them in `data/user_profiles.json`; the profile is injected into the system prompt so the bot genuinely knows who it's talking to
+- **User profiles** — after each exchange, a background LLM call extracts facts about the user (preferences, hobbies, games played, etc.) and stores them in `data/user_profiles.json`; the profile is injected into the system prompt so the bot genuinely knows who it's talking to; `!whoami` / `/whoami` shows the stored facts, `!forget` / `/forget` deletes one or all of them
+- **Debates & running jokes** — a background scanner periodically reviews recent channel history and tracks ongoing threads (arguments, running bits, unresolved questions); the bot brings one up naturally if it genuinely fits, with a cooldown so it doesn't repeat itself
 - **Auto-summarization** — a background task periodically condenses expiring messages into permanent summary documents before they vanish; effective memory is infinite; summaries survive indefinitely while raw message noise is cleaned up
+- **The Morning Paper** — an optional daily in-character recap posted to configured channels, summarizing the last 24 hours; skips quiet days
+- **`!missed` / `/missed`** — catch-up summary of everything that happened in a channel since you last spoke there
+- **Reminders** — `!remind <duration> <text>` (compounds like `1h30m`) delivers an in-character reminder later; `!reminders` lists pending ones, `!unremind <id>` cancels one
 - **Image generation** — gpt-image-1 via `!generate` / `/generate`, or naturally in conversation ("draw me a crab")
 - **Image transformation** — AI image editing via `!transform` / `/transform`, or naturally in conversation ("make it blue"); transforms chain — each uses the previous result, not the original
-- **Image analysis** — describe images attached in chat; search and describe via `!image` / `/image`
+- **Image/video/sticker analysis** — describes images, short videos (sampled across `VIDEO_FRAMES` frames), stickers, and lone custom emoji shared in chat; search and describe via `!image` / `/image`
 - **Web search** — Tavily-backed tool calling; the bot searches automatically when a question needs current info and incorporates results into its in-character response
 - **Suggest activity** — when asked what to do, the bot randomly recommends a bot feature or a past activity mentioned in the channel's history
 - **Personality system** — short character descriptors stored in `data/personalities.json`; switch at runtime, pin per-channel, persist across restarts
 - **Conversation simulation** — simulate a debate between two personalities on any topic via `!simulate` / `/simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) — all panel-based
-- **Game server management** — Minecraft (vanilla via SSH+Docker, modded local) and Satisfactory live panels; Satisfactory status pulled from the dedicated server HTTPS API (players, tech tier, play time); Valheim and Enshrouded start/stop commands; `!status` / `/status` shows all servers at a glance in one embed
+- **Game server management** — Minecraft (vanilla + creative via SSH+Docker, modded via local process launch), Satisfactory, Valheim, Enshrouded, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
+- **Bot self-restart** — an owner (`BOT_OWNER_IDS`) can ask the bot in chat to restart itself; it re-execs in place, picking up any code changes since the last start
 - **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
 
 ## Requirements
 
 - Python 3.10+
-- kitty terminal — required on Linux for **modded** Minecraft server start (launches the server process in a new terminal window); not needed for vanilla (SSH+Docker) or any other feature
+- kitty terminal — required on Linux for **modded** Minecraft server start (launches the server process in a new terminal window); not needed for vanilla/creative (SSH+Docker) or any other feature. **This only works on a Linux desktop with a display** — it will not work in a headless environment, including the project's own Docker deployment (see [Known Limitations](#known-limitations))
 
 ```bash
 python -m venv .venv
@@ -45,6 +51,9 @@ DISCORD_TOKEN=your_discord_bot_token
 # Comma-separated channel IDs the bot listens in and responds to automatically.
 # The bot always responds to direct @mentions regardless of this list.
 CHANNEL_IDS=123456789,987654321
+
+# Comma-separated Discord user IDs allowed to ask the bot to restart itself in chat.
+BOT_OWNER_IDS=123456789
 
 
 # ─────────────────────────────────────────────
@@ -71,12 +80,19 @@ IMAGE_QUALITY=medium
 # Max tokens for image analysis responses. Raise if descriptions are cut off.
 ANALYZE_MAX_TOKENS=500
 
+# Frames sampled evenly across a shared video for vision analysis. 1 = first-frame only (cheapest).
+VIDEO_FRAMES=5
+
 # Enable or disable emoji reaction responses (true/false)
 REACTION_RESPONSES=true
 
 # Python logging level for data/bot.log (DEBUG / INFO / WARNING / ERROR).
 # Console always shows INFO+. Use DEBUG when hunting bugs.
 LOG_LEVEL=WARNING
+
+# Max follow-up rounds in the agentic tool loop — how many extra LLM calls the model
+# can chain (search → refine → search) before it's forced to answer.
+MAX_AGENT_TURNS=4
 
 
 # ─────────────────────────────────────────────
@@ -138,6 +154,38 @@ USER_PROFILE_MSG_CHARS=500
 
 
 # ─────────────────────────────────────────────
+# Debates & Running Jokes
+# ─────────────────────────────────────────────
+
+# Enable the background debate/running-joke tracker (true/false).
+DEBATE_TRACKING=true
+
+# How often (in hours) the scanner reviews recent channel history.
+DEBATE_SCAN_INTERVAL_HOURS=12
+
+# Minimum new messages since the last scan before bothering to run extraction.
+DEBATE_SCAN_MIN_MESSAGES=20
+
+# Max chars of recent chat fed to the extraction LLM call per scan.
+DEBATE_SCAN_MAX_INPUT_CHARS=12000
+
+# Max tokens for the extraction response.
+DEBATE_SCAN_MAX_TOKENS=400
+
+# Cap on tracked entries per channel; oldest resolved (then oldest unresolved) drop first.
+DEBATE_MAX_PER_CHANNEL=15
+
+# Max entries injected into the system prompt per call.
+DEBATE_INJECT_MAX=3
+
+# Minimum days between surfacing the same entry, so the bot doesn't repeat callbacks.
+DEBATE_SURFACE_COOLDOWN_DAYS=3
+
+# Model used for extraction. Defaults to MODEL_CHAT if unset.
+# DEBATE_MODEL=gpt-4o-mini
+
+
+# ─────────────────────────────────────────────
 # Auto-Summarization
 # ─────────────────────────────────────────────
 
@@ -166,6 +214,32 @@ SUMMARY_MAX_TOKENS=500
 
 # Max chars of chat history fed to the summarizer per run. Caps cost on active channels.
 SUMMARY_MAX_INPUT_CHARS=12000
+
+
+# ─────────────────────────────────────────────
+# Reminders
+# ─────────────────────────────────────────────
+
+# Poll interval (seconds) for checking due reminders. Stored in data/reminders.json (gitignored).
+REMINDER_CHECK_SECONDS=30
+
+
+# ─────────────────────────────────────────────
+# The Morning Paper
+# ─────────────────────────────────────────────
+
+# Comma-separated channels that get a daily in-character recap. Unset = feature disabled.
+# MORNING_PAPER_CHANNEL_IDS=123456789
+
+# Server-local hour at/after which the daily edition posts.
+MORNING_PAPER_HOUR=9
+
+# Skip the day's edition below this many messages in the last 24h.
+MORNING_PAPER_MIN_MESSAGES=15
+
+# Input/output caps for the recap LLM call.
+MORNING_PAPER_MAX_INPUT_CHARS=12000
+MORNING_PAPER_MAX_TOKENS=600
 
 
 # ─────────────────────────────────────────────
@@ -200,11 +274,27 @@ MINECRAFT_VANILLA_RCON_PORT=25575
 MINECRAFT_VANILLA_RCON_PASSWORD=your_rcon_password
 MINECRAFT_VANILLA_CONNECT_URL=play.example.com   # shown as "Connect: ..." in the panel (free text)
 
-MINECRAFT_MODDED_DIR=/home/user/minecraft/modded   # local path for kitty launch
+MINECRAFT_MODDED_DIR=/home/user/minecraft/modded   # local path for kitty launch — see Requirements
 MINECRAFT_MODDED_RCON_HOST=localhost
 MINECRAFT_MODDED_RCON_PORT=25575
 MINECRAFT_MODDED_RCON_PASSWORD=your_rcon_password
 MINECRAFT_MODDED_CONNECT_URL=modded.example.com  # shown as "Connect: ..." in the panel (free text)
+
+# Creative server — SSH + Docker log watcher + RCON, same shape as vanilla
+MINECRAFT_CREATIVE_SSH_HOST=192.168.0.x
+MINECRAFT_CREATIVE_SSH_USER=admin
+MINECRAFT_CREATIVE_CONTAINER=minecraft-creative      # Docker container name to watch/log
+MINECRAFT_CREATIVE_RCON_HOST=192.168.0.x
+MINECRAFT_CREATIVE_RCON_PORT=25575
+MINECRAFT_CREATIVE_RCON_PASSWORD=your_rcon_password
+MINECRAFT_CREATIVE_CONNECT_URL=play.example.com
+
+# Discord channels for background event announcements (server start/stop, player join, etc.)
+MINECRAFT_EVENTS_CHANNEL_ID=
+MINECRAFT_CREATIVE_EVENTS_CHANNEL_ID=
+
+# Kill switch for the Minecraft event watchers — checked every cycle, no restart needed.
+MINECRAFT_EVENTS_ENABLED=true
 
 
 # ─────────────────────────────────────────────
@@ -217,9 +307,12 @@ SATISFACTORY_COMPOSE_DIR=/home/data          # path to docker-compose on remote 
 # SATISFACTORY_API_HOST=                     # optional — defaults to SSH host
 SATISFACTORY_API_PORT=7777                   # HTTPS API port (default: 7777)
 SATISFACTORY_CONNECT_URL=satisfactory.example.com:7777  # shown as "Connect" field in the panel (free text)
+SATISFACTORY_EVENTS_CHANNEL_ID=              # Discord channel for milestone announcements
+SATISFACTORY_EVENTS_ENABLED=true             # kill switch — checked every cycle, no restart needed
 
-# Which servers appear in !status / /status (comma-separated)
-# Valid values: minecraft_vanilla, minecraft_modded, satisfactory
+# Which servers appear in !status / /status (comma-separated).
+# Matched case-insensitively against each server's *_HOSTNAME env var, or its internal
+# key (minecraft_vanilla, minecraft_modded, minecraft_creative, satisfactory). Unset = all shown.
 STATUS_SERVERS=minecraft_vanilla,minecraft_modded,satisfactory
 
 
@@ -234,6 +327,33 @@ VALHEIM_PORT=2456
 VALHEIM_STEAM_DIR=I:\SteamLibrary
 
 ENSHROUDED_EXE=I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe
+
+
+# ─────────────────────────────────────────────
+# EmuCoach WoW repack (Windows 11 VM, via SSH)
+# ─────────────────────────────────────────────
+
+# Requires OpenSSH Server on the VM with key auth for the bot's SSH user. If that user is
+# in the local Administrators group, Windows requires the key in
+# C:\ProgramData\ssh\administrators_authorized_keys (SYSTEM+Administrators-only ACL) instead
+# of the usual per-user authorized_keys file.
+EMUCOACH_SSH_HOST=
+EMUCOACH_SSH_USER=
+
+# Repack root on the VM.
+EMUCOACH_DIR=C:\GameServers\CATASILVER
+
+# Start targets relative to EMUCOACH_DIR. .bat/.cmd files are wrapped in cmd /c.
+EMUCOACH_DB_START=Database\start_mysql.bat
+EMUCOACH_AUTH_START=Repack\authserver.exe
+EMUCOACH_WORLD_START=Repack\worldserver.exe
+
+# Seconds to wait after starting the database before launching auth/world.
+# A cold MySQL start can easily take 20+ seconds — err on the high side.
+EMUCOACH_DB_WAIT=30
+
+# Optional: shown as "Connect: ..." in status messages.
+EMUCOACH_CONNECT_URL=
 
 
 # ─────────────────────────────────────────────
@@ -266,6 +386,7 @@ Requires Docker and Docker Compose.
 ```bash
 ssh-keyscan <your-minecraft-host> >> ~/.ssh/known_hosts
 ssh-keyscan <your-satisfactory-host> >> ~/.ssh/known_hosts
+ssh-keyscan <your-emucoach-vm-host> >> ~/.ssh/known_hosts
 ```
 
 A `docker-compose.yml` is included at the project root:
@@ -277,7 +398,7 @@ services:
     env_file: .env
     restart: unless-stopped
     volumes:
-      - ./data:/app/data       # persistent state (ChromaDB, profiles, debates, logs)
+      - ./data:/app/data       # persistent state (ChromaDB, profiles, debates, reminders, logs)
       - ~/.ssh:/root/.ssh:ro   # SSH keys for game server management
 ```
 
@@ -295,7 +416,25 @@ docker compose up --build -d
 
 **Deploying to another server:** copy the project folder, recreate `.env` (it is gitignored), and run `docker compose up --build`. The `./data` volume path is relative so no compose edits are needed.
 
-Bot state (ChromaDB, profiles, debates, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
+**Updating a running deployment** (pull latest code and pick up any `.env` changes):
+
+```bash
+git pull
+docker compose up --build -d
+```
+
+Bot state (ChromaDB, profiles, debates, reminders, Morning Paper state, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
+
+## Testing
+
+Pure-logic test suite (pytest + pytest-asyncio) — no Discord, network, or ChromaDB connection needed:
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest -q
+```
+
+Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), reminders, profiles, and Morning Paper scheduling.
 
 ## Commands
 
@@ -320,9 +459,20 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | `!learn <text>` | `/learn` | Store text in memory |
 | `!learn` + attachment | `/learn` + file | Store a file in memory (.txt, .py, .md, .pdf, .json, .csv, and more) |
 | `!memory` | `/memory` | Show how many chunks are stored for this channel |
+| `!missed` | `/missed` | Catch up on what happened since you were last here |
 | `!summarize` | `/summarize` | TL;DR of recent conversation |
 | `!cleardocs` | `/cleardocs` | Remove stored documents (keeps message history) |
 | `!clearall` | — | Wipe all memory for this channel (requires Manage Messages) |
+| `!whoami` | `/whoami` | See the profile facts stored about you |
+| `!forget <n\|all>` | `/forget` | Delete one stored fact about you, or all of them |
+
+### Reminders
+
+| Prefix | Slash | Description |
+|---|---|---|
+| `!remind <duration> <text>` | `/remind` | Set a reminder (s/m/h/d/w, compounds like `1h30m`); delivered in character |
+| `!reminders` | `/reminders` | List your pending reminders |
+| `!unremind <id>` | `/unremind` | Cancel one of your reminders |
 
 ### Images
 
@@ -346,7 +496,7 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 
 | Prefix | Slash | Description |
 |---|---|---|
-| `!status` | `/status` | Live status embed for all game servers |
+| `!status` | `/status` | Live status embed for all configured game servers |
 | `!minecraft` | `/minecraft` | Open the Minecraft server panel |
 | `!satisfactory` | `/satisfactory` | Open the Satisfactory server panel |
 | `!start_valheim` | `/valheim start` | Start the Valheim dedicated server |
@@ -354,6 +504,9 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | `!valheim_status` | `/valheim status` | Check Valheim server status |
 | `!start_enshrouded` | `/enshrouded start` | Start the Enshrouded dedicated server |
 | `!stop_enshrouded` | `/enshrouded stop` | Stop the Enshrouded dedicated server |
+| `!start_emucoach` | `/emucoach start` | Start the EmuCoach WoW server (database → auth → world) |
+| `!stop_emucoach` | `/emucoach stop` | Stop the EmuCoach WoW server |
+| `!emucoach_status` | `/emucoach status` | Check EmuCoach WoW server status |
 
 ### Misc
 
@@ -368,31 +521,44 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 main.py                       — bot init, shared state, load_extension calls, bot.run()
 cogs/
   chat.py                     — on_message/on_reaction_add queue-based handler; RAG
-                                integration; AI image/search/suggest tools; profile
-                                injection and background extraction; summarizer start
+                                integration; profile/debate context injection and
+                                background extraction; summarizer/debate/Morning Paper
+                                loop startup
+  chat_tools.py                — AI tool schemas and executors (generate/transform/search/
+                                suggest/restart); shared by the text and reaction paths
   images.py                   — generate, transform, image commands
   personality.py              — prefix + slash personality commands
   games.py                    — game, snake, adventure commands
-  servers.py                  — minecraft, valheim, enshrouded server commands
+  servers.py                  — minecraft, satisfactory, valheim, enshrouded, emucoach
+                                server commands
+  reminders.py                 — remind, reminders, unremind commands
   fun.py                      — commands/help (formatted text list), simulate, sandwich
-  rag.py                      — learn, memory, summarize, cleardocs, clearall
+  rag.py                      — learn, memory, missed, summarize, cleardocs, clearall,
+                                whoami, forget
 AIfunc/
-  responses.py                — BASE_SYSTEM_PROMPT; generate_gpt_response (rag_context,
-                                user_context, tools, auto_resolve), analyze_image,
-                                generate_image, transform_image
+  responses.py                — BASE_SYSTEM_PROMPT; generate_gpt_response (agentic tool
+                                loop, rag_context, user_context, debate_context, tools,
+                                auto_resolve), analyze_image, generate_image, transform_image
   simulate.py                 — ConversationSimulator
 chatbotfunc/
   logger.py                   — setup_logging(): RotatingFileHandler → data/bot.log
-  utils.py                    — fetch_message_history, async_chat_completion,
+  utils.py                    — fetch_message_history, describe_extras, async_chat_completion,
                                 split_message, format_error_message, encode_discord_image,
-                                SUPPORTED_DOC_EXTENSIONS
+                                encode_video_frames, SUPPORTED_DOC_EXTENSIONS
   personalitymanager.py       — PersonalityManager: data/personalities.json store;
                                 auto-migrates from .env on first run; per-channel pin
                                 cache in data/channel_personalities.json
-  profiles.py                 — get_user_context(), extract_and_update(); reads/writes
+  profiles.py                 — get_user_context(), extract_and_update(), get_facts(),
+                                delete_fact(), clear_facts(); reads/writes
                                 data/user_profiles.json (gitignored)
-  summarizer.py               — summarizer_loop(), summarize_channel(); skip/force logic;
+  summarizer.py                — summarizer_loop(), summarize_channel(); skip/force logic;
                                 state in data/summarizer_state.json (gitignored)
+  debates.py                   — debate_scanner_loop(), scan_channel(), get_debate_context(),
+                                mark_surfaced(); state in data/debates.json (gitignored)
+  reminders.py                 — reminder store, parse_duration/format_duration,
+                                reminder_loop(); state in data/reminders.json (gitignored)
+  morning_paper.py             — morning_paper_loop(): daily in-character recap per
+                                channel; state in data/morning_paper_state.json (gitignored)
 ragfunc/
   memory.py                   — ChannelMemory (ChromaDB singleton client); store_message
                                 (context_snippet support), store_document, retrieve
@@ -400,26 +566,35 @@ ragfunc/
                                 clear methods; list_channel_ids(); async helpers
 gamefunc/
   adventure.py / adventure_panel.py  — 55×23 ASCII dungeon, viewport renderer, D-pad UI
-  snake_panel.py              — Snake game, D-pad buttons, score tracking
-  minecraft.py / minecraft_panel.py  — thread-safe RCON; vanilla starts via SSH+Docker,
-                                modded via local kitty; live status panel
+  snake.py / snake_panel.py    — Snake game, D-pad buttons, score tracking
+  tictactoe.py                — Tic-Tac-Toe logic
+  minecraft.py / minecraft_panel.py  — thread-safe RCON; vanilla/creative start via
+                                SSH+Docker, modded via local kitty; live status panel
+  minecraft_events.py          — SSH + `docker logs -f` event watcher per server
+                                (vanilla/creative); idles while offline/disabled
   satisfactory.py             — SSH+Docker start/stop; HTTPS API state (players, tier,
                                 play time, tick rate); token caching with auto-refresh
   satisfactory_panel.py       — Satisfactory management panel (Start/Stop/Restart/Refresh)
+  satisfactory_monitor.py      — polls the API for tech-tier milestones, announces them
+  emucoach.py                   — starts/stops the EmuCoach WoW repack on a Windows VM over
+                                SSH; processes spawned detached via WMI (Win32_Process Create)
   status_panel.py             — read-only all-servers status embed; parallel queries;
                                 configurable via STATUS_SERVERS env var
   valheim.py                  — ValheimServer, EnshroudedServer (Windows-only)
-  tictactoe.py                — Tic-Tac-Toe logic
 funfunc/
   image_search.py             — Google Custom Search wrapper
   web_search.py               — Tavily web search (AI google_search tool)
   sandwich.py                 — random sandwich generator
-data/                         — runtime artifacts (all gitignored except personalities.json)
+tests/                         — pytest + pytest-asyncio; pure-logic coverage, no live services
+data/                         — runtime artifacts (gitignored in full)
   chroma/                     — ChromaDB persistent vector store
   personalities.json          — personality descriptor list + active selection
   channel_personalities.json  — per-channel personality pin map
-  user_profiles.json          — per-user extracted fact profiles (gitignored)
-  summarizer_state.json       — last-summary timestamps per channel (gitignored)
+  user_profiles.json          — per-user extracted fact profiles
+  debates.json                 — tracked debates/running jokes per channel
+  reminders.json               — pending reminders
+  morning_paper_state.json     — last-posted-date per channel, prevents double posting
+  summarizer_state.json       — last-summary timestamps per channel
   bot.log                     — rotating log file
 ```
 
@@ -440,7 +615,7 @@ Every qualifying message the bot processes is stored in a per-channel ChromaDB c
 
 **Deduplication:** entries use Discord message IDs as ChromaDB document IDs — re-processing the same message never creates duplicates.
 
-**Image analysis:** when you share an image in an allowed channel, the bot describes it in character and stores the description in RAG so it can reference past images in future conversations.
+**Image/video/sticker analysis:** when you share an image, short video, sticker, or lone custom emoji in an allowed channel, the bot describes it in character and stores the description in RAG so it can reference it in future conversations.
 
 **File auto-storage:** dropping a supported file in an allowed channel stores it in RAG automatically. Supported types: `.txt .py .md .js .ts .jsx .tsx .json .csv .yaml .yml .html .css .sh .toml .ini .cfg .pdf`
 
@@ -452,7 +627,15 @@ PDFs are text-extracted via `pypdf`. Scanned/image-only PDFs won't have usable t
 
 After every real text exchange, a lightweight background LLM call extracts new facts about the user from the conversation (preferences, games, habits, running jokes, anything distinctive) and merges them into `data/user_profiles.json`. On the next message from that user, the profile is injected into the system prompt as a `USER PROFILE:` section before RAG context, so the model knows who it's talking to without relying on retrieval.
 
-Profiles are per-user (keyed by Discord user ID) and persist indefinitely. The `USER_PROFILE_MAX_FACTS` cap (default: 20) keeps profiles from bloating — the oldest facts are dropped when it's hit, keeping the most recently learned information. Gitignored; never committed.
+Profiles are per-user (keyed by Discord user ID) and persist indefinitely. The `USER_PROFILE_MAX_FACTS` cap (default: 20) keeps profiles from bloating — the oldest facts are dropped when it's hit, keeping the most recently learned information. `!whoami` / `/whoami` shows the current list; `!forget <n>` / `/forget` removes one fact, `!forget all` clears everything. Gitignored; never committed.
+
+## Debates & Running Jokes
+
+A background scanner (`DEBATE_SCAN_INTERVAL_HOURS`, default: 12) pulls each channel's recent history directly from Discord and sends it to an LLM that returns `new` / `update` / `resolve` actions against the channel's tracked list in `data/debates.json`. Unresolved entries that haven't been surfaced within `DEBATE_SURFACE_COOLDOWN_DAYS` (default: 3) are injected into the system prompt as an `ONGOING THREADS YOU REMEMBER:` section — the model is told to bring one up only if it genuinely fits, never to force it. After a response is sent, topic words are fuzzy-matched against the response text to stamp `last_surfaced_ts` and prevent immediate repeats.
+
+## The Morning Paper
+
+An optional daily in-character recap, posted to each channel listed in `MORNING_PAPER_CHANNEL_IDS` at/after `MORNING_PAPER_HOUR` server-local time. Pulls the last 24 hours of history plus ongoing-threads context and asks the LLM for a punchy recap in the channel's active personality. Skips the day's edition if fewer than `MORNING_PAPER_MIN_MESSAGES` were posted. `data/morning_paper_state.json` prevents double-posting across restarts/reconnects. Unset the channel list to disable the feature entirely.
 
 ## Personality System
 
@@ -469,10 +652,12 @@ Use `!pin [n]` / `/personality pin [n]` to lock a specific personality to a chan
 
 ## Known Limitations
 
+- **Modded Minecraft requires a Linux desktop** — its start command spawns a local `kitty` terminal window, which doesn't exist in a headless environment. This includes the project's own Docker deployment: modded start/stop will not work there regardless of `MINECRAFT_MODDED_*` addressing. Vanilla and creative (SSH+Docker) are unaffected. RCON-based status/stop can still work if `MINECRAFT_MODDED_RCON_HOST` points at wherever the server actually runs and is network-reachable from the bot.
+- **EmuCoach requires OpenSSH Server on the target Windows VM**, set up in advance with key auth for the bot's SSH user (see the `.env` section above for the admin-group nuance). Nothing in the bot can install or configure this remotely.
 - **Valheim / Enshrouded** commands are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
 - **Image transform state** — `!transform last` and AI-triggered transforms require at least one `!generate` or `!transform` in the current session. Image bytes live in memory and are lost on restart.
 - **Scanned PDFs** — `!learn` and file auto-storage extract text via `pypdf`. Image-only/scanned PDFs produce no usable text.
 - **Token estimate** — `MAX_CONTEXT_TOKENS` trimming uses a chars÷4 approximation. Give yourself headroom when setting the cap.
 - **Profile extraction latency** — user profiles are updated in the background after each response. A fact mentioned in message N is available starting from message N+1, not immediately.
-- **Summarizer first run** — the background summarizer starts its first scan after `SUMMARY_INTERVAL_HOURS`, not immediately on startup.
+- **Summarizer/debate scanner first run** — these background loops start their first scan after their interval has elapsed, not immediately on startup.
 - **RAG memory is per-channel** — each Discord channel has its own isolated collection. `!clearall` only affects the current channel.

@@ -58,12 +58,21 @@ def _find_coords(line: str) -> tuple[str, str, str | None, str, str] | None:
 
 
 def _classify(line: str) -> str | None:
-    """Return a death event string, or None if the line is uninteresting."""
+    """Return a death event string, or None if the line is uninteresting.
+
+    Scoped to the actual server-emitted INFO message (not the raw log line,
+    which includes timestamp/thread noise from any source — mods, plugins,
+    stack traces) so an unrelated line merely containing a death-ish phrase
+    doesn't get misread as a player death.
+    """
     clean = _ANSI_RE.sub('', line)
+    m_info = _INFO_RE.search(clean)
+    if not m_info:
+        return None
+    message = m_info.group(1).strip()
     for kw in _DEATH_KEYWORDS:
-        if kw in clean:
-            m = _INFO_RE.search(clean)
-            return m.group(1).strip() if m else clean.strip()
+        if kw in message:
+            return message
     return None
 
 

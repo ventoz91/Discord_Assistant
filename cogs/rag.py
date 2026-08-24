@@ -34,7 +34,7 @@ class RAGCog(commands.Cog):
         raw = await self._download_bytes(url)
         if raw is None:
             return None
-        if ext in PDF_EXTENSIONS:
+        if ext == '.pdf':
             return await asyncio.to_thread(self._pdf_to_text, raw)
         try:
             return raw.decode('utf-8', errors='replace')

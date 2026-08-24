@@ -1,5 +1,5 @@
 import copy
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 MAP_W = 55
 MAP_H = 23

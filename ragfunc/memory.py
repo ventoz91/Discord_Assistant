@@ -19,18 +19,9 @@ RETRIEVAL_K = 5
 CHUNK_SIZE = 3000
 CHUNK_OVERLAP = 300
 
-# Cosine distance threshold for retrieval (0=identical, 1=unrelated, 2=opposite)
-# Results above this value are dropped as too dissimilar to the query
-DISTANCE_THRESHOLD = float(os.getenv("DISTANCE_THRESHOLD", "0.8"))
-
-# How long chat messages stay retrievable. Documents (from !learn) never expire.
-MESSAGE_TTL_DAYS = int(os.getenv("MESSAGE_TTL_DAYS", "30"))
-
-# Recency decay half-life for message retrieval scoring.
-# A message this many days old needs to be twice as similar to survive the same
-# distance threshold as a brand-new message. Documents are never decayed.
-# Set to 0 to disable decay entirely.
-RAG_DECAY_HALFLIFE_DAYS = float(os.getenv("RAG_DECAY_HALFLIFE_DAYS", "14"))
+# DISTANCE_THRESHOLD, MESSAGE_TTL_DAYS, RAG_DECAY_HALFLIFE_DAYS are read from
+# .env at call time (see below) rather than cached here, so live edits apply
+# without a restart like every other config value in this project.
 
 # Single-word/short filler phrases not worth storing
 _FILLER_PHRASES = {
@@ -137,7 +128,8 @@ class ChannelMemory:
         if author and role == "user":
             content = f"{author}: {content}"
         doc_id = f"msg-{message_id}" if message_id else f"msg-{int(time.time() * 1000)}"
-        expires_at = int(time.time()) + MESSAGE_TTL_DAYS * 86400
+        message_ttl_days = int(os.getenv("MESSAGE_TTL_DAYS", "30"))
+        expires_at = int(time.time()) + message_ttl_days * 86400
         meta = {"type": "message", "role": role, "ts": int(time.time()), "expires_at": expires_at}
         if context_snippet:
             meta["ctx"] = context_snippet[:200]
@@ -147,7 +139,7 @@ class ChannelMemory:
                 documents=[f"{role}: {content}"],
                 metadatas=[meta],
             )
-        except Exception as e:
+        except Exception:
             logger.exception("store_message failed")
 
     def store_document(self, text: str, source: str = "upload"):
@@ -162,7 +154,7 @@ class ChannelMemory:
         if ids:
             try:
                 self._col.upsert(ids=ids, documents=docs, metadatas=metas)
-            except Exception as e:
+            except Exception:
                 logger.exception("store_document failed")
         return len(chunks)
 
@@ -207,7 +199,8 @@ class ChannelMemory:
             distances = results["distances"][0] if results["distances"] else []
             metadatas = results["metadatas"][0] if results["metadatas"] else []
             now = int(time.time())
-            halflife = RAG_DECAY_HALFLIFE_DAYS
+            halflife = float(os.getenv("RAG_DECAY_HALFLIFE_DAYS", "14"))
+            distance_threshold = float(os.getenv("DISTANCE_THRESHOLD", "0.8"))
 
             scored = []
             for doc, dist, meta in zip(docs, distances, metadatas):
@@ -223,14 +216,14 @@ class ChannelMemory:
                     effective_dist = dist / decay if decay > 0 else float("inf")
                 else:
                     effective_dist = dist
-                if effective_dist <= DISTANCE_THRESHOLD:
+                if effective_dist <= distance_threshold:
                     ctx = meta.get("ctx")
                     display = f"[re: {ctx}]\n{doc}" if ctx else doc
                     scored.append((effective_dist, display))
 
             scored.sort(key=lambda x: x[0])
             return [doc for _, doc in scored[:k]]
-        except Exception as e:
+        except Exception:
             logger.exception("retrieve failed")
             return []
 
@@ -267,7 +260,7 @@ class ChannelMemory:
             if results["ids"]:
                 self._col.delete(ids=results["ids"])
                 return len(results["ids"])
-        except Exception as e:
+        except Exception:
             logger.exception("clear_documents failed")
         return 0
 
@@ -279,7 +272,7 @@ class ChannelMemory:
                 name=_collection_name(self.channel_id),
                 metadata={"hnsw:space": "cosine"},
             )
-        except Exception as e:
+        except Exception:
             logger.exception("clear_all failed")
 
     def get_expiring(self, before_ts: int) -> tuple[list[str], list[str]]:

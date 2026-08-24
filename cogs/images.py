@@ -2,10 +2,10 @@ import discord
 from discord.ext import commands, bridge
 import logging
 import io
+import os
 import aiohttp
 import json
 import openai
-from PIL import Image
 from AIfunc.responses import generate_image, transform_image, analyze_image
 from funfunc.image_search import main as search_image
 from chatbotfunc.utils import format_error_message, encode_discord_image
@@ -29,8 +29,10 @@ class ImagesCog(commands.Cog):
             if not image_bytes:
                 raise ValueError("Failed to generate an image.")
             self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_generated"] = image_bytes
+            size = os.getenv("IMAGE_SIZE", "1024x1024")
+            quality = os.getenv("IMAGE_QUALITY", "medium")
             await ctx.respond(
-                f"Generated Image -- every image you generate costs $0.04 so please keep that in mind\nPrompt: {prompt}",
+                f"Generated Image -- generation isn't free, keep that in mind (current settings: {size}, {quality} quality)\nPrompt: {prompt}",
                 file=discord.File(fp=io.BytesIO(image_bytes), filename="image.png"),
             )
         except openai.BadRequestError as e:
@@ -124,14 +126,17 @@ class ImagesCog(commands.Cog):
         attachment: discord.Option(discord.Attachment, "Image to transform", required=False) = None,
         use_last: discord.Option(bool, "Use the most recently generated image", required=False) = False):
         await ctx.defer()
-        if use_last or attachment is None:
+        if use_last:
             state = self.bot.channel_image_state.get(ctx.channel.id, {})
             image_bytes = state.get("last_transformed") or state.get("last_generated")
             if not image_bytes:
                 await ctx.respond("No image in memory for this channel. Use `/generate` first.")
                 return
-        else:
+        elif attachment is not None:
             image_bytes = await attachment.read()
+        else:
+            await ctx.respond("Attach an image, or set `use_last:True` to transform the most recent image in this channel.")
+            return
         await self._transform_impl(ctx, instructions, image_bytes)
 
 

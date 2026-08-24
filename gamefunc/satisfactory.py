@@ -7,7 +7,6 @@ import time
 import aiohttp
 
 _API_TIMEOUT = aiohttp.ClientTimeout(total=5)
-_KEEP = object()  # sentinel for "don't change this field"
 
 
 class SatisfactoryServer:

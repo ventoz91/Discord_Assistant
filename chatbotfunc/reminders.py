@@ -128,7 +128,7 @@ async def _deliver(bot, reminder: dict):
             f"{format_duration(reminder['due_ts'] - reminder['created_ts'])} ago.{lateness} "
             f"Address them as {mention}."
         )
-        text, _ = await generate_gpt_response(
+        text = await generate_gpt_response(
             [{"role": "user", "content": prompt}], personality
         )
         if not text:

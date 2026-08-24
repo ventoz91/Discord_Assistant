@@ -11,7 +11,7 @@ python main.py
 
 ## Environment Configuration
 
-All configuration lives in **`.env`** at the project root. All values are read at call time (not module load), so changes take effect on the next request without restarting.
+All configuration lives in **`.env`** at the project root. All values are read at call time (not module load), so changes take effect on the next request without restarting — with one exception: `OPENAI_API_KEY` is bound into an OpenAI client on first use (both the explicit `client` in `AIfunc/responses.py` and the SDK's own lazily-cached default client behind `chatbotfunc/utils.py`'s `async_chat_completion`), so rotating it requires a restart.
 
 **Core**
 - `DISCORD_TOKEN` — Discord bot token
@@ -168,7 +168,7 @@ Both text and reaction paths share `_run_llm_flow` (RAG retrieval + token budget
 - **`cogs/games.py`** — `game` (Tic-Tac-Toe), `snake`, `adventure` commands.
 - **`cogs/servers.py`** — `minecraft` bridge command; Valheim prefix + `/valheim start|stop|status` slash group; Enshrouded prefix + `/enshrouded start|stop` slash group.
 - **`cogs/fun.py`** — `commands` and `help` bridge commands (both post the same formatted text list); `sandwich` bridge command; `simulate` has separate prefix (`*args`) and slash (explicit typed params) implementations.
-- **`cogs/rag.py`** — `learn` (prefix + slash, file attachment support), `memory`, `cleardocs`, `summarize` (bridge commands), `clearall` (prefix only, requires Manage Messages).
+- **`cogs/rag.py`** — `learn` (prefix + slash, file attachment support), `memory`, `missed`, `cleardocs`, `summarize`, `whoami`, `forget` (bridge commands), `clearall` (prefix only, requires Manage Messages).
 
 ### Slash vs Prefix
 
@@ -271,6 +271,7 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
 | `!forget <n\|all>` | `/forget` | Delete one stored fact about you, or all of them |
 | `!learn [text]` | `/learn` | Store text or file in RAG memory |
 | `!memory` | `/memory` | Show memory stats for this channel |
+| `!missed` | `/missed` | Catch up on what happened since you were last here |
 | `!summarize` | `/summarize` | TL;DR of recent conversation |
 | `!cleardocs` | `/cleardocs` | Clear stored documents (keeps message history) |
 | `!clearall` | — | Wipe all memory for this channel (Manage Messages required) |

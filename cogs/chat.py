@@ -184,7 +184,7 @@ class ChatCog(commands.Cog):
                 reader = PdfReader(io.BytesIO(raw))
                 pages = [page.extract_text() or "" for page in reader.pages]
                 return "\n\n".join(p for p in pages if p.strip()) or None
-            except Exception as e:
+            except Exception:
                 logger.exception("PDF extraction error")
                 return None
         try:
@@ -353,7 +353,8 @@ class ChatCog(commands.Cog):
                     if isinstance(image_result, bytes):
                         self.bot.channel_image_state.setdefault(channel.id, {})["last_generated"] = image_result
                         file = discord.File(io.BytesIO(image_result), filename="generated.png")
-                        img_msg = await channel.send("Generated Image", file=file)
+                        caption = f"Generated: {prompt[:300]}" + ("…" if len(prompt) > 300 else "")
+                        img_msg = await channel.send(caption, file=file)
                         await async_store_message(channel.id, "assistant", f"[generated image for prompt: {prompt}]", img_msg.id)
                     elif isinstance(image_result, str):
                         await channel.send(image_result)
@@ -365,7 +366,8 @@ class ChatCog(commands.Cog):
                     if isinstance(image_result, bytes):
                         self.bot.channel_image_state.setdefault(channel.id, {})["last_transformed"] = image_result
                         file = discord.File(io.BytesIO(image_result), filename="transformed.png")
-                        img_msg = await channel.send("Transformed Image", file=file)
+                        caption = f"Transformed: {instructions[:300]}" + ("…" if len(instructions) > 300 else "")
+                        img_msg = await channel.send(caption, file=file)
                         await async_store_message(channel.id, "assistant", f"[transformed image: {instructions}]", img_msg.id)
                     elif isinstance(image_result, str):
                         await channel.send(image_result)
@@ -510,6 +512,13 @@ class ChatCog(commands.Cog):
     async def on_command_error(self, ctx, error):
         if isinstance(error, commands.CommandNotFound):
             await ctx.send(f"`!{ctx.invoked_with}` is not a recognised command.")
+        elif isinstance(error, commands.MissingPermissions):
+            await ctx.send("You don't have permission to do that.")
+        elif isinstance(error, (commands.MissingRequiredArgument, commands.BadArgument)):
+            await ctx.send(f"Usage: `{ctx.prefix}{ctx.command} {ctx.command.signature}`" if ctx.command else str(error))
+        else:
+            logger.exception("unhandled command error in !%s", ctx.command, exc_info=error)
+            await ctx.send("Something went wrong running that command.")
 
 
 def setup(bot):
