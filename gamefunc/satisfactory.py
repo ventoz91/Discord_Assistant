@@ -1,10 +1,10 @@
 import asyncio
 import os
-import shlex
-import subprocess
 import time
 
 import aiohttp
+
+from gamefunc.compose_server import DockerComposeGameServer
 
 _API_TIMEOUT = aiohttp.ClientTimeout(total=5)
 
@@ -12,38 +12,26 @@ _API_TIMEOUT = aiohttp.ClientTimeout(total=5)
 class SatisfactoryServer:
     def __init__(self):
         self._token: str | None = None
-
-    def _ssh_target(self) -> str:
-        host = os.getenv('SATISFACTORY_SSH_HOST', '')
-        user = os.getenv('SATISFACTORY_SSH_USER', '')
-        return f'{user}@{host}' if user else host
+        self._compose = DockerComposeGameServer(
+            host=lambda: os.getenv('SATISFACTORY_SSH_HOST', ''),
+            user=lambda: os.getenv('SATISFACTORY_SSH_USER', ''),
+            compose_dir=lambda: os.getenv('SATISFACTORY_COMPOSE_DIR', '/home/data'),
+            service_name='satisfactory',
+        )
 
     def _api_url(self) -> str:
         host = os.getenv('SATISFACTORY_API_HOST') or os.getenv('SATISFACTORY_SSH_HOST', '')
         port = os.getenv('SATISFACTORY_API_PORT', '7777')
         return f'https://{host}:{port}/api/v1'
 
-    def _compose_dir(self) -> str:
-        return os.getenv('SATISFACTORY_COMPOSE_DIR', '/home/data')
-
-    async def _ssh_compose(self, subcmd: str) -> bool:
-        target = self._ssh_target()
-        if not target:
-            return False
-        d = shlex.quote(self._compose_dir())
-        cmd = ['ssh', '-o', 'BatchMode=yes', target,
-               f'cd {d} && docker compose {subcmd} satisfactory']
-        try:
-            await asyncio.to_thread(subprocess.run, cmd, check=True, timeout=30, capture_output=True)
-            return True
-        except Exception:
-            return False
-
     async def start(self) -> bool:
-        return await self._ssh_compose('up -d')
+        return await self._compose.start()
 
     async def stop(self) -> bool:
-        return await self._ssh_compose('stop')
+        return await self._compose.stop()
+
+    async def pull_and_redeploy(self) -> bool:
+        return await self._compose.pull_and_redeploy()
 
     async def _call(self, session: aiohttp.ClientSession, fn: str,
                     data: dict | None = None, token: str | None = None) -> dict:

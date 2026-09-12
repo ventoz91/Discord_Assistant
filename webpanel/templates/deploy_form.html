@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Deploy {{ tmpl.label }} — Game Server Panel{% endblock %}
+{% block content %}
+<h1>Deploy: {{ tmpl.label }}</h1>
+<p class="hint">{{ tmpl.description }}</p>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form class="stack" method="post" action="/deploy/{{ key }}">
+  <div>
+    <label>Instance name (lowercase letters/digits/hyphens, must start with a letter)</label>
+    <input type="text" name="name" value="{{ (form.get('name') if form else none) or '' }}" required>
+  </div>
+
+  {% if tmpl.custom %}
+    <div>
+      <label>Docker image</label>
+      <input type="text" name="image" value="{{ (form.get('image') if form else none) or '' }}"
+             placeholder="user/image:tag" required>
+    </div>
+    <div>
+      <label>Port mappings — one per line: host:container/tcp or host:container/udp</label>
+      <textarea name="ports" placeholder="27015:27015/udp">{{ (form.get('ports') if form else none) or '' }}</textarea>
+    </div>
+    <div>
+      <label>Environment variables — one per line: KEY=VALUE</label>
+      <textarea name="env">{{ (form.get('env') if form else none) or '' }}</textarea>
+    </div>
+  {% else %}
+    {% for p in tmpl.default_ports %}
+    <div>
+      <label>{{ p.label }} (host port — container listens on {{ p.container_port }}/{{ p.protocol }})</label>
+      <input type="text" name="port_{{ loop.index0 }}"
+             value="{{ (form.get('port_' ~ loop.index0) if form else none) or p.container_port }}" required>
+    </div>
+    {% endfor %}
+    {% for f in tmpl.fields %}
+    <div>
+      <label>{{ f.label }}{% if f.required %} *{% endif %}</label>
+      <input type="text" name="{{ f.key }}" value="{{ (form.get(f.key) if form else none) or f.default }}">
+    </div>
+    {% endfor %}
+  {% endif %}
+
+  <div>
+    <label>Data volume path (inside the container — check the image's own docs; not guaranteed correct)</label>
+    <input type="text" name="volume_path"
+           value="{{ (form.get('volume_path') if form else none) or tmpl.default_volume_path }}">
+  </div>
+
+  <button class="btn-primary" type="submit">Deploy</button>
+</form>
+{% endblock %}

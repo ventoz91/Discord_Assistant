@@ -21,7 +21,8 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Personality system** — short character descriptors stored in `data/personalities.json`; switch at runtime, pin per-channel, persist across restarts
 - **Conversation simulation** — simulate a debate between two personalities on any topic via `!simulate` / `/simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) — all panel-based
-- **Game server management** — Minecraft (vanilla + creative via SSH+Docker, modded via local process launch), Satisfactory, Valheim, Enshrouded, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
+- **Game server management** — Minecraft (vanilla + creative via SSH+Docker, modded via local process launch), Satisfactory, Palworld, Valheim, Enshrouded, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
+- **Web admin panel** (`webpanel/`) — browser dashboard for every server above: live status, start/stop, and pull-and-redeploy, plus a "Deploy new server" flow that spins up additional game servers from templates (or a custom Docker image) on a configured host. Runs inside the same process as the bot (see [Running](#running)) so it shares `gamefunc/` control code and can post panel actions to the same Discord channels the bot's own event watchers use. Session-login protected — see [Web Panel](#web-panel) below
 - **Bot self-restart** — an owner (`BOT_OWNER_IDS`) can ask the bot in chat to restart itself; it re-execs in place, picking up any code changes since the last start
 - **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
 
@@ -317,6 +318,48 @@ STATUS_SERVERS=minecraft_vanilla,minecraft_modded,satisfactory
 
 
 # ─────────────────────────────────────────────
+# Palworld Server
+# ─────────────────────────────────────────────
+
+PALWORLD_SSH_HOST=192.168.0.x                # remote host — start/stop via SSH+Docker
+PALWORLD_SSH_USER=admin                      # optional SSH user
+PALWORLD_COMPOSE_DIR=/home/data              # path to docker-compose on remote host
+PALWORLD_CONNECT_URL=palworld.example.com:8211  # shown as "Connect" in the panel (free text)
+
+
+# ─────────────────────────────────────────────
+# Web Admin Panel (webpanel/) — see "Web Panel" section below
+# ─────────────────────────────────────────────
+
+# Signs panel session cookies. Generate with:
+#   python -c "import secrets; print(secrets.token_hex(32))"
+WEBPANEL_SECRET_KEY=
+
+# Single admin login — generate the hash with:
+#   python -c "from webpanel.auth import hash_password; print(hash_password('your-password'))"
+WEBPANEL_USERNAME=admin
+WEBPANEL_PASSWORD_HASH=
+
+# Port the panel listens on inside the container (default: 8000).
+# WEBPANEL_PORT=8000
+
+# Public URL shown by the `/panel` bot command (free text, e.g. https://panel.ventoz.ca).
+WEBPANEL_URL=
+
+# Discord channel for web-panel action notifications (start/stop/redeploy/deploy/
+# delete) on servers that don't already have a dedicated *_EVENTS_CHANNEL_ID.
+PANEL_EVENTS_CHANNEL_ID=
+
+# ── "Deploy new server" (Phase 3 — templates) ──
+# Single target host for newly-deployed template instances (e.g. GameDocker).
+# Each instance gets its own directory/compose file under DEPLOY_BASE_DIR — never
+# touches the hand-maintained main docker-compose.yml on that host.
+DEPLOY_TARGET_HOST=
+DEPLOY_TARGET_USER=admin
+# DEPLOY_BASE_DIR=/home/data/gameservers/deployed
+
+
+# ─────────────────────────────────────────────
 # Valheim & Enshrouded (Windows only)
 # ─────────────────────────────────────────────
 
@@ -397,8 +440,10 @@ services:
     build: .
     env_file: .env
     restart: unless-stopped
+    ports:
+      - "8000:8000"            # web admin panel — see "Web Panel" section
     volumes:
-      - ./data:/app/data       # persistent state (ChromaDB, profiles, debates, reminders, logs)
+      - ./data:/app/data       # persistent state (ChromaDB, profiles, debates, reminders, logs, deployed-server metadata)
       - ~/.ssh:/root/.ssh:ro   # SSH keys for game server management
 ```
 
@@ -507,6 +552,7 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | `!start_emucoach` | `/emucoach start` | Start the EmuCoach WoW server (database → auth → world) |
 | `!stop_emucoach` | `/emucoach stop` | Stop the EmuCoach WoW server |
 | `!emucoach_status` | `/emucoach status` | Check EmuCoach WoW server status |
+| — | `/panel` | Get the link to the web admin panel (`WEBPANEL_URL`) |
 
 ### Misc
 
@@ -581,6 +627,22 @@ gamefunc/
   status_panel.py             — read-only all-servers status embed; parallel queries;
                                 configurable via STATUS_SERVERS env var
   valheim.py                  — ValheimServer, EnshroudedServer (Windows-only)
+  compose_server.py           — DockerComposeGameServer: shared SSH+docker-compose
+                                start/stop/pull_and_redeploy/is_running, used by Satisfactory,
+                                Palworld, Minecraft vanilla/creative, and webpanel deploys
+  palworld.py                  — PalworldServer: SSH+Docker start/stop/redeploy for Palworld;
+                                status via `docker inspect` (no stateless status API configured)
+webpanel/                      — browser admin panel; runs in-process with the bot (see main.py)
+  app.py                       — FastAPI app factory; session middleware, router wiring
+  auth.py                       — single-admin login (WEBPANEL_USERNAME/_PASSWORD_HASH), session
+                                cookie signed by WEBPANEL_SECRET_KEY, require_login dependency
+  routes_servers.py            — dashboard for the fixed servers above (status/start/stop/redeploy)
+  routes_deploy.py             — "Deploy new server" flow: template catalog, port-collision
+                                check, compose-file generation, and management of what's deployed
+  templates_catalog.py         — curated game templates (Terraria, Valheim/Docker) + a generic
+                                custom-image template; render_compose_yaml()
+  store.py                     — data/deployed_servers.json: metadata for template-deployed instances
+  templates/, static/           — Jinja2 HTML + CSS; htmx (CDN) for in-place refresh, no JS build step
 funfunc/
   image_search.py             — Google Custom Search wrapper
   web_search.py               — Tavily web search (AI google_search tool)
@@ -650,11 +712,41 @@ Each descriptor is a short character description injected at the `{personality}`
 
 Use `!pin [n]` / `/personality pin [n]` to lock a specific personality to a channel. Pins are stored in `data/channel_personalities.json` and survive restarts. Remove with `!unpin` / `/personality unpin`.
 
+## Web Panel
+
+A browser dashboard (`webpanel/`) for everything in [Game Servers](#game-servers) above, plus deploying new ones. It runs inside the same process as the bot (`main.py` runs `bot.start()` and `uvicorn.Server.serve()` concurrently), so it shares `.env`, the mounted SSH keys, and the `gamefunc/` control classes — no separate service or duplicated config.
+
+**Setup:**
+
+1. Generate a session-signing secret and set it as `WEBPANEL_SECRET_KEY`:
+   ```bash
+   python -c "import secrets; print(secrets.token_hex(32))"
+   ```
+2. Pick a `WEBPANEL_USERNAME` and generate its password hash for `WEBPANEL_PASSWORD_HASH`:
+   ```bash
+   python -c "from webpanel.auth import hash_password; print(hash_password('your-password'))"
+   ```
+3. The panel listens on `WEBPANEL_PORT` (default `8000`) inside the container. Reverse-proxy it behind your own auth/TLS layer — do **not** expose it directly to the internet unauthenticated. This panel can reach every configured host over SSH and Windows VM over WMI, so treat it as sensitive as SSH access itself; an IP allowlist at the reverse proxy (in addition to the login) is a reasonable extra layer given the blast radius.
+4. Optionally set `WEBPANEL_URL` so `/panel` in Discord can post the link.
+
+**Dashboard:** live status + Start/Stop/Redeploy for Minecraft vanilla/creative, Satisfactory, Palworld, Valheim, Enshrouded, and EmuCoach — wrapping the same `gamefunc/` classes the Discord commands use, so state is always consistent between the two surfaces. Rows auto-refresh every 15s via htmx polling, no page reload.
+
+**Deploy new server:** `/deploy` offers a small catalog of curated templates (see `webpanel/templates_catalog.py`) plus a "custom image" template for anything not curated. Deploying:
+1. Validates the instance name and checks the requested port(s) aren't already bound on `DEPLOY_TARGET_HOST` (a live `ss -tuln` check over SSH).
+2. Renders a standalone `docker-compose.yml` into its own directory under `DEPLOY_BASE_DIR` — never touches the hand-maintained compose file already running Minecraft/Satisfactory/Palworld on that host.
+3. Runs `docker compose up -d` and records the instance in `data/deployed_servers.json`.
+
+Deployed instances then appear on the dashboard like any fixed server (start/stop/redeploy), plus a **Delete** action that requires typing the instance's name to confirm — it stops the container, runs `docker compose down`, and removes its directory from the host.
+
+**Discord integration:** panel actions (start/stop/redeploy/deploy/delete) post a short line to the same channel the affected server's own event watcher already announces to (`MINECRAFT_EVENTS_CHANNEL_ID`, etc.), falling back to `PANEL_EVENTS_CHANNEL_ID` — so a server started from the browser shows up in Discord exactly like one started with `!minecraft`.
+
+**Curated template images/volume paths are a starting point, not a guarantee** — third-party game server images vary in their conventions. The deploy form exposes the data volume path as an editable field for exactly this reason; check the image's own docs on first deploy.
+
 ## Known Limitations
 
 - **Modded Minecraft requires a Linux desktop** — its start command spawns a local `kitty` terminal window, which doesn't exist in a headless environment. This includes the project's own Docker deployment: modded start/stop will not work there regardless of `MINECRAFT_MODDED_*` addressing. Vanilla and creative (SSH+Docker) are unaffected. RCON-based status/stop can still work if `MINECRAFT_MODDED_RCON_HOST` points at wherever the server actually runs and is network-reachable from the bot.
 - **EmuCoach requires OpenSSH Server on the target Windows VM**, set up in advance with key auth for the bot's SSH user (see the `.env` section above for the admin-group nuance). Nothing in the bot can install or configure this remotely.
-- **Valheim / Enshrouded** commands are Windows-only (use `.bat` files and `CREATE_NEW_CONSOLE`). They will fail on Linux.
+- **Valheim / Enshrouded commands are Windows-only** (use `.bat` files and `CREATE_NEW_CONSOLE`, a Windows-only `subprocess` flag). They will raise `AttributeError` when the bot runs in its Linux Docker container — which it does today — so these two servers currently cannot be started/stopped/checked from either Discord or the web panel. The web panel surfaces this with a clear message rather than a 500, but doesn't fix it; the underlying commands would need reworking onto an SSH-based path (like EmuCoach already uses) to work from Linux.
 - **Image transform state** — `!transform last` and AI-triggered transforms require at least one `!generate` or `!transform` in the current session. Image bytes live in memory and are lost on restart.
 - **Scanned PDFs** — `!learn` and file auto-storage extract text via `pypdf`. Image-only/scanned PDFs produce no usable text.
 - **Token estimate** — `MAX_CONTEXT_TOKENS` trimming uses a chars÷4 approximation. Give yourself headroom when setting the cap.

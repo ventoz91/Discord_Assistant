@@ -1,0 +1,24 @@
+<div class="card" id="row-{{ s.id | replace(':', '-') }}"
+     hx-get="{{ s.base_url }}/row" hx-trigger="every 15s" hx-swap="outerHTML">
+  <div class="info">
+    <div class="label">
+      <span class="dot {{ 'on' if s.online == True else ('off' if s.online == False else 'unknown') }}"></span>
+      {{ s.label }}
+    </div>
+    {% if s.detail %}<div class="detail">{{ s.detail }}</div>{% endif %}
+    {% if s.connect %}<div class="connect">Connect: {{ s.connect }}</div>{% endif %}
+    {% if message %}<div class="message">{{ message }}</div>{% endif %}
+  </div>
+  <div class="actions">
+    <button hx-post="{{ s.base_url }}/start" hx-target="#row-{{ s.id | replace(':', '-') }}" hx-swap="outerHTML">▶ Start</button>
+    <button hx-post="{{ s.base_url }}/stop" hx-target="#row-{{ s.id | replace(':', '-') }}" hx-swap="outerHTML"
+            hx-confirm="Stop {{ s.label }}?">⏹ Stop</button>
+    {% if s.redeployable %}
+    <button hx-post="{{ s.base_url }}/redeploy" hx-target="#row-{{ s.id | replace(':', '-') }}" hx-swap="outerHTML"
+            hx-confirm="Pull the latest image and redeploy {{ s.label }}? Brief downtime while it recreates.">↻ Redeploy</button>
+    {% endif %}
+    {% if s.deletable %}
+    <a class="btn btn-danger" href="{{ s.base_url }}/delete">Delete</a>
+    {% endif %}
+  </div>
+</div>

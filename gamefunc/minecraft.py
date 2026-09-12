@@ -7,6 +7,8 @@ import socket
 import struct
 import time
 
+from gamefunc.compose_server import DockerComposeGameServer
+
 _COLOR_RE = re.compile(r'§.')
 
 RCON_CONNECT_TIMEOUT = 5.0  # seconds per RCON request (socket-level, thread-safe)
@@ -56,6 +58,13 @@ def _rcon_command(host: str, port: int, password: str, command: str, timeout: fl
 
 
 class MinecraftServer:
+    # Server types managed over SSH+Docker (as opposed to 'modded', which launches
+    # a local process via kitty — see start()). Maps type -> compose service name.
+    _SSH_COMPOSE_SERVICE = {
+        'vanilla':  'minecraft',
+        'creative': 'minecraft-creative',
+    }
+
     def __init__(self):
         self.rcon_settings = {
             'vanilla': {
@@ -68,29 +77,45 @@ class MinecraftServer:
                 'port':     int(os.getenv('MINECRAFT_MODDED_RCON_PORT', 25575)),
                 'password': os.getenv('MINECRAFT_MODDED_RCON_PASSWORD', ''),
             },
+            'creative': {
+                'host':     os.getenv('MINECRAFT_CREATIVE_RCON_HOST', 'localhost'),
+                'port':     int(os.getenv('MINECRAFT_CREATIVE_RCON_PORT', 25575)),
+                'password': os.getenv('MINECRAFT_CREATIVE_RCON_PASSWORD', ''),
+            },
         }
         self.server_dirs = {
             'vanilla': os.getenv('MINECRAFT_VANILLA_DIR', ''),
             'modded':  os.getenv('MINECRAFT_MODDED_DIR', ''),
         }
+        # vanilla/creative are SSH+Docker-compose services; delegate that plumbing
+        # to the shared DockerComposeGameServer instead of duplicating it (also
+        # gives us pull_and_redeploy() for free). modded stays a local kitty
+        # launch, handled separately in start().
+        self._compose = {
+            server_type: DockerComposeGameServer(
+                host=self._env_getter(server_type, 'SSH_HOST'),
+                user=self._env_getter(server_type, 'SSH_USER'),
+                compose_dir=self._compose_dir_getter(server_type),
+                service_name=service,
+            )
+            for server_type, service in self._SSH_COMPOSE_SERVICE.items()
+        }
+
+    @staticmethod
+    def _env_getter(server_type: str, suffix: str):
+        key = f'MINECRAFT_{server_type.upper()}_{suffix}'
+        return lambda: os.getenv(key, '')
+
+    @staticmethod
+    def _compose_dir_getter(server_type: str):
+        key = f'MINECRAFT_{server_type.upper()}_COMPOSE_DIR'
+        return lambda: os.getenv(key, os.getenv('MINECRAFT_VANILLA_COMPOSE_DIR', '/home/data'))
 
     async def start(self, server_type: str) -> bool:
-        if server_type == 'vanilla':
-            ssh_host = os.getenv('MINECRAFT_VANILLA_SSH_HOST', '')
-            if not ssh_host:
+        if server_type in self._compose:
+            if not os.getenv(f'MINECRAFT_{server_type.upper()}_SSH_HOST', ''):
                 return False
-            ssh_user = os.getenv('MINECRAFT_VANILLA_SSH_USER', '')
-            compose_dir = os.getenv('MINECRAFT_VANILLA_COMPOSE_DIR', '/home/data')
-            target = f'{ssh_user}@{ssh_host}' if ssh_user else ssh_host
-            cmd = ['ssh', '-o', 'BatchMode=yes', target,
-                   f'cd {shlex.quote(compose_dir)} && docker compose up -d minecraft']
-            try:
-                await asyncio.to_thread(
-                    subprocess.run, cmd, check=True, timeout=30, capture_output=True
-                )
-                return True
-            except Exception:
-                return False
+            return await self._compose[server_type].start()
         else:
             server_dir = self.server_dirs.get(server_type, '')
             if not server_dir:
@@ -98,6 +123,11 @@ class MinecraftServer:
             local_cmd = f'kitty --hold -d {server_dir} -e bash -c "./newrun.sh"'
             subprocess.Popen(shlex.split(local_cmd))
             return True
+
+    async def pull_and_redeploy(self, server_type: str) -> bool:
+        """Only meaningful for the SSH+Docker types (vanilla/creative)."""
+        compose = self._compose.get(server_type)
+        return await compose.pull_and_redeploy() if compose else False
 
     async def _rcon(self, server_type: str, command: str) -> str:
         info = self.rcon_settings[server_type]

@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Game Server Panel{% endblock %}
+{% block content %}
+<h1>Game Servers</h1>
+{% for s in servers %}
+  {% include "_server_row.html" %}
+{% endfor %}
+
+<h2>Deployed instances</h2>
+{% if deployed %}
+  {% for s in deployed %}
+    {% include "_server_row.html" %}
+  {% endfor %}
+{% else %}
+  <p class="hint">Nothing deployed yet — <a href="/deploy">deploy a new server</a>.</p>
+{% endif %}
+{% endblock %}

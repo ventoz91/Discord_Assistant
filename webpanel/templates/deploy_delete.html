@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Delete {{ name }} — Game Server Panel{% endblock %}
+{% block content %}
+<h1>Delete "{{ name }}"</h1>
+<p class="hint">This stops the container, removes it, and deletes its compose directory on the host.
+This cannot be undone.</p>
+{% if error %}<div class="error">{{ error }}</div>{% endif %}
+<form class="stack" method="post" action="/deployed/{{ name }}/delete">
+  <div>
+    <label>Type "{{ name }}" to confirm</label>
+    <input type="text" name="confirm_name" required>
+  </div>
+  <button class="btn-danger" type="submit">Delete permanently</button>
+</form>
+{% endblock %}

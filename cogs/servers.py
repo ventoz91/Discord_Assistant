@@ -1,3 +1,5 @@
+import os
+
 import discord
 from discord.ext import commands, bridge
 from gamefunc.minecraft_panel import MinecraftPanel
@@ -36,6 +38,16 @@ class ServersCog(commands.Cog):
         panel = StatusPanel()
         embed = await panel.build_embed()
         await ctx.respond(embed=embed, view=panel)
+
+    # ── Web panel ─────────────────────────────────────────────────────────────
+
+    @bridge.bridge_command(description="Get the link to the web admin panel")
+    async def panel(self, ctx):
+        url = os.getenv('WEBPANEL_URL', '').strip()
+        if not url:
+            await ctx.respond("Web panel URL isn't configured — set WEBPANEL_URL in .env.", ephemeral=True)
+            return
+        await ctx.respond(f"🌐 Game server panel: {url}", ephemeral=True)
 
     # ── Satisfactory ─────────────────────────────────────────────────────────
 

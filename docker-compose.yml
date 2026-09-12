@@ -3,10 +3,15 @@ services:
     build: .
     env_file: .env
     restart: unless-stopped
+    ports:
+      # Web admin panel (webpanel/) — proxy this through your own reverse
+      # proxy/auth layer rather than exposing it directly to the internet.
+      - "8000:8000"
     volumes:
-      # Persistent bot state: ChromaDB, profiles, debates, logs, etc.
+      # Persistent bot state: ChromaDB, profiles, debates, logs, deployed-server
+      # metadata, etc.
       - ./data:/app/data
-      # SSH keys for Minecraft/Satisfactory server management
+      # SSH keys for Minecraft/Satisfactory/Palworld/deploy-target server management
       - ~/.ssh:/root/.ssh:ro
     # known_hosts must exist or SSH will prompt interactively — pre-populate it
     # by running: ssh-keyscan <your-server-host> >> ~/.ssh/known_hosts

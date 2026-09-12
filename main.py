@@ -1,9 +1,12 @@
+import asyncio
 import os
 from dotenv import load_dotenv
 import discord
+import uvicorn
 from discord.ext import bridge
 from chatbotfunc.logger import setup_logging
 from chatbotfunc.personalitymanager import PersonalityManager
+from webpanel.app import create_app
 
 load_dotenv()
 setup_logging()
@@ -35,4 +38,21 @@ discord_token = os.getenv("DISCORD_TOKEN")
 if not discord_token:
     raise ValueError("DISCORD_TOKEN not set in environment.")
 
-bot.run(discord_token)
+
+async def main():
+    # Runs the bot and the web panel (webpanel/) concurrently in one process —
+    # same event loop, same .env, same gamefunc/ instances — so the panel can
+    # post directly to Discord channels and needs no separate deployment.
+    app = create_app(bot=bot)
+    config = uvicorn.Config(
+        app, host="0.0.0.0", port=int(os.getenv("WEBPANEL_PORT", "8000")), log_level="warning",
+    )
+    server = uvicorn.Server(config)
+    async with bot:
+        await asyncio.gather(
+            bot.start(discord_token),
+            server.serve(),
+        )
+
+
+asyncio.run(main())

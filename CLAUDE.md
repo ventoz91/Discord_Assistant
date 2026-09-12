@@ -105,6 +105,15 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `EMUCOACH_DB_START` / `EMUCOACH_AUTH_START` / `EMUCOACH_WORLD_START` — start targets relative to `EMUCOACH_DIR` (defaults: `Database\start_mysql.bat`, `Repack\authserver.exe`, `Repack\worldserver.exe`). `.bat`/`.cmd` files are wrapped in `cmd /c`.
 - `EMUCOACH_DB_WAIT` — seconds between database start and auth/world launch (default: 10)
 - `EMUCOACH_CONNECT_URL` — free-text connection address shown in EmuCoach status messages
+- `PALWORLD_SSH_HOST` / `PALWORLD_SSH_USER` / `PALWORLD_COMPOSE_DIR` — SSH+Docker control for Palworld (same shape as Satisfactory); `PALWORLD_CONNECT_URL` — free-text connect address
+
+**Web Admin Panel (`webpanel/`)** — see README's "Web Panel" section for setup/usage
+- `WEBPANEL_SECRET_KEY` — signs panel session cookies (required; app raises at startup if unset)
+- `WEBPANEL_USERNAME` / `WEBPANEL_PASSWORD_HASH` — single admin login; hash via `webpanel.auth.hash_password()` (stdlib `hashlib.scrypt`, no extra dependency)
+- `WEBPANEL_PORT` — port the panel listens on inside the container (default: 8000)
+- `WEBPANEL_URL` — free-text URL shown by the `/panel` Discord command
+- `PANEL_EVENTS_CHANNEL_ID` — fallback Discord channel for panel action notifications on servers without a dedicated `*_EVENTS_CHANNEL_ID`
+- `DEPLOY_TARGET_HOST` / `DEPLOY_TARGET_USER` — single host for the "Deploy new server" template flow (Phase 3); `DEPLOY_BASE_DIR` — base directory for per-instance compose files (default: `/home/data/gameservers/deployed`)
 
 **Personalities (legacy — migration only)**
 - `PERSONALITY=<descriptor>` — Read once on first run to populate `data/personalities.json`. After migration, ignored.
@@ -150,9 +159,9 @@ Per-channel ChromaDB collections in `data/chroma/`. Singleton client (`_get_clie
 
 ## Architecture Overview
 
-`main.py` (~30 lines): initialises `bridge.Bot`, sets shared state, calls `bot.load_extension()` for all cogs, calls `bot.run()`.
+`main.py`: initialises `bridge.Bot`, sets shared state, calls `bot.load_extension()` for all cogs, then runs the bot and the `webpanel/` FastAPI app concurrently in one asyncio loop (`asyncio.gather(bot.start(token), uvicorn.Server(...).serve())`, inside `async with bot:` — the same pattern `bot.run()` uses internally) instead of the older single blocking `bot.run(token)`. The web panel needs no separate process/deployment: it shares `.env`, the mounted SSH keys, and can post to Discord via `app.state.bot`.
 
-**Tests:** `tests/` (pytest + pytest-asyncio, `asyncio_mode = auto`). Pure-logic coverage of history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), reminders, profiles, and morning-paper scheduling — no Discord/network/Chroma needed. Run with `python -m pytest -q`. Dev deps in `requirements-dev.txt`; runtime deps in `requirements.txt` are fully pinned.
+**Tests:** `tests/` (pytest + pytest-asyncio, `asyncio_mode = auto`). Pure-logic coverage of history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), reminders, profiles, morning-paper scheduling, and the web panel (`DockerComposeGameServer`, `webpanel/store.py`, `webpanel/auth.py`, template rendering/validation regexes, and full request/response flows via FastAPI's `TestClient` with all SSH/network calls monkeypatched) — no Discord/network/Chroma/SSH needed. Run with `python -m pytest -q`. Dev deps in `requirements-dev.txt`; runtime deps in `requirements.txt` are fully pinned.
 
 **Startup idempotency:** `on_ready` re-fires on gateway re-identify; `ChatCog._background_started` guards the background loops (summarizer, debate scanner, morning paper) and the watcher/monitor `start()` methods also self-guard, so reconnects never duplicate tasks.
 
@@ -166,7 +175,7 @@ Both text and reaction paths share `_run_llm_flow` (RAG retrieval + token budget
 - **`cogs/images.py`** — `generate`, `transform`, `image` commands. `transform` has separate prefix (reads `ctx.message.attachments`) and slash (explicit `attachment` option) implementations.
 - **`cogs/personality.py`** — `!new`, `!change`, `!list`, `!pin`, `!unpin` prefix commands and `/personality` slash group (new/change/list/remove/pin/unpin).
 - **`cogs/games.py`** — `game` (Tic-Tac-Toe), `snake`, `adventure` commands.
-- **`cogs/servers.py`** — `minecraft` bridge command; Valheim prefix + `/valheim start|stop|status` slash group; Enshrouded prefix + `/enshrouded start|stop` slash group.
+- **`cogs/servers.py`** — `minecraft`/`satisfactory` bridge commands; Valheim prefix + `/valheim start|stop|status` slash group; Enshrouded prefix + `/enshrouded start|stop` slash group; EmuCoach `/emucoach start|stop|status` slash group; `panel` bridge command (posts `WEBPANEL_URL`, ephemeral).
 - **`cogs/fun.py`** — `commands` and `help` bridge commands (both post the same formatted text list); `sandwich` bridge command; `simulate` has separate prefix (`*args`) and slash (explicit typed params) implementations.
 - **`cogs/rag.py`** — `learn` (prefix + slash, file attachment support), `memory`, `missed`, `cleardocs`, `summarize`, `whoami`, `forget` (bridge commands), `clearall` (prefix only, requires Manage Messages).
 
@@ -193,13 +202,16 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 - **`gamefunc/adventure.py`** — `AdventureGame`: 55×23 grid dungeon, 8-dir movement, viewport renderer (33×15). Win: pick up the Golden Crown.
 - **`gamefunc/adventure_panel.py`** — `AdventureView`: 3×3 D-pad, Pick Up / Inventory / Look / Quit. Direction buttons disable at walls. Embed refreshes in place.
 - **`gamefunc/snake_panel.py`** — `SnakeView`: D-pad buttons, score tracking, embed-in-place.
-- **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread).
-- **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed, button enable/disable rules.
-- **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only).
+- **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread). `MinecraftServer` handles vanilla/creative (SSH+Docker via `DockerComposeGameServer`, one instance per type built in `__init__` from `MINECRAFT_{TYPE}_*` env vars) and modded (local `kitty` launch). `pull_and_redeploy(server_type)` — vanilla/creative only.
+- **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed, button enable/disable rules. Vanilla/modded only (creative isn't exposed here — see webpanel's dashboard instead).
+- **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only — see README Known Limitations: these raise `AttributeError` when the bot runs in its Linux container, which it does today).
 - **`gamefunc/emucoach.py`** — `EmucoachServer`: starts/stops the EmuCoach WoW repack on a Windows VM over SSH. Spawns processes via WMI (`Win32_Process Create`, PowerShell `-EncodedCommand`) so they detach from the SSH session and survive disconnect. Start order: database → wait → authserver → worldserver, each skipped if its process already runs. Stop force-kills world/auth then mysqld. Status reports each component from the remote process list.
 - **`gamefunc/minecraft_events.py`** — `MinecraftEventWatcher`: SSH + `docker logs -f` stream per server (vanilla/creative). While the container is down or `MINECRAFT_EVENTS_ENABLED=false`, idles on a 5-minute poll (`docker inspect` state check) instead of streaming; errors during the poll are silent (DEBUG).
 - **`gamefunc/satisfactory_monitor.py`** — `SatisfactoryMonitor`: polls the Satisfactory API every 5 minutes for tech-tier milestones; skips cycles while `SATISFACTORY_EVENTS_ENABLED=false`.
+- **`gamefunc/compose_server.py`** — `DockerComposeGameServer`: shared SSH+`docker compose` control (`start`/`stop`/`pull_and_redeploy`/`down`/`is_running` via `docker inspect`/`write_file`/`run`). `host`/`user`/`compose_dir` accept either a plain string (fixed — used by webpanel-deployed instances) or a zero-arg callable (re-evaluated on every call — used by `SatisfactoryServer`/`PalworldServer`/`MinecraftServer` so `.env` changes take effect without a restart, matching the rest of the project). Used directly by `SatisfactoryServer.start/stop/pull_and_redeploy`, all of `PalworldServer`, `MinecraftServer`'s vanilla/creative types, and `webpanel/routes_deploy.py`'s deployed instances.
+- **`gamefunc/palworld.py`** — `PalworldServer`: thin wrapper around `DockerComposeGameServer` (service `palworld`, container `palworld-server` — they differ in the compose file). No stateless status API configured today, so status is the container's actual running state, not a player count.
 - **`funfunc/`** — `image_search.py` (Google CSE), `web_search.py` (Tavily, used by `google_search` AI tool), `sandwich.py`.
+- **`webpanel/`** — browser admin panel, runs in-process with the bot (see README "Web Panel" for setup/usage). `app.py` (FastAPI factory, session middleware), `auth.py` (single-admin login, `require_login` dependency), `routes_servers.py` (dashboard for fixed servers, wraps the same `gamefunc/` classes cogs use), `routes_deploy.py` (template catalog, deploy/manage/delete instances), `templates_catalog.py` (curated templates + `render_compose_yaml`), `store.py` (`data/deployed_servers.json`), `templates/`+`static/` (Jinja2 + htmx, no JS build step).
 
 ### Shared State
 
@@ -262,6 +274,7 @@ All mutable state on the bot object, accessible from any Cog via `self.bot`:
 | `!start_valheim` / `!stop_valheim` | `/valheim start\|stop\|status` | Manage Valheim server |
 | `!start_enshrouded` / `!stop_enshrouded` | `/enshrouded start\|stop` | Manage Enshrouded server |
 | `!start_emucoach` / `!stop_emucoach` / `!emucoach_status` | `/emucoach start\|stop\|status` | Manage EmuCoach WoW repack on the Windows VM (SSH) |
+| — | `/panel` | Post the web admin panel URL (`WEBPANEL_URL`), ephemeral |
 | `!commands` / `!help` | `/commands` / `/help` | Show all bot commands (formatted text list) |
 | `!sandwich` | `/sandwich` | Generate a random sandwich with AI image |
 | `!remind <dur> <text>` | `/remind` | Set a reminder (s/m/h/d/w, compounds like `1h30m`); delivered in character |

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Deploy — Game Server Panel{% endblock %}
+{% block content %}
+<h1>Deploy a new server</h1>
+<div class="templates-grid">
+{% for key, t in templates.items() %}
+  <a class="template-card" href="/deploy/{{ key }}">
+    <div class="t-label">{{ t.label }}</div>
+    <div class="t-desc">{{ t.description }}</div>
+  </a>
+{% endfor %}
+</div>
+{% endblock %}
