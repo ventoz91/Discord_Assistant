@@ -54,6 +54,9 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!start_emucoach  ·  /emucoach start",     "Start EmuCoach WoW server"),
         ("!stop_emucoach  ·  /emucoach stop",       "Stop EmuCoach WoW server"),
         ("!emucoach_status  ·  /emucoach status",   "EmuCoach WoW status"),
+        ("!start_dragonwilds  ·  /dragonwilds start", "Start Dragonwilds server"),
+        ("!stop_dragonwilds  ·  /dragonwilds stop",   "Stop Dragonwilds server"),
+        ("!dragonwilds_status  ·  /dragonwilds status", "Dragonwilds status"),
     ],
     "🎲  MISC": [
         ("!sandwich  ·  /sandwich",  "Random sandwich with an AI image"),
