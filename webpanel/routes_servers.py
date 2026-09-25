@@ -15,7 +15,6 @@ from gamefunc.emucoach import EmucoachServer
 from gamefunc.minecraft import MinecraftServer
 from gamefunc.palworld import PalworldServer
 from gamefunc.satisfactory import SatisfactoryServer
-from gamefunc.valheim import EnshroudedServer, ValheimServer
 from webpanel import store
 from webpanel.routes_deploy import _deployed_status
 
@@ -24,14 +23,12 @@ logger = logging.getLogger("bot.webpanel")
 router = APIRouter()
 templates = Jinja2Templates(directory="webpanel/templates")
 
-# Satisfactory/Palworld/Emucoach/Valheim/Enshrouded read their SSH/RCON config
+# Satisfactory/Palworld/Emucoach read their SSH/RCON config
 # lazily on every call (see gamefunc/compose_server.py and each class), so a
 # single process-lifetime instance is safe here and avoids e.g. Satisfactory
 # re-fetching an auth token on every request.
 _sf = SatisfactoryServer()
 _pw = PalworldServer()
-_valheim = ValheimServer()
-_enshrouded = EnshroudedServer()
 _emucoach = EmucoachServer()
 
 # MinecraftServer reads its RCON/SSH settings once in __init__ (unlike the
@@ -42,14 +39,11 @@ _emucoach = EmucoachServer()
 FIXED_SERVERS = [
     {"id": "minecraft_vanilla",  "label": "Minecraft — Vanilla",  "kind": "minecraft", "mc_type": "vanilla"},
     {"id": "minecraft_creative", "label": "Minecraft — Creative", "kind": "minecraft", "mc_type": "creative"},
+    {"id": "minecraft_modded",   "label": "Minecraft — Modded",   "kind": "minecraft", "mc_type": "modded"},
     {"id": "satisfactory",       "label": "Satisfactory",         "kind": "satisfactory"},
     {"id": "palworld",           "label": "Palworld",             "kind": "palworld"},
-    {"id": "valheim",            "label": "Valheim",               "kind": "valheim"},
-    {"id": "enshrouded",         "label": "Enshrouded",            "kind": "enshrouded"},
     {"id": "emucoach",           "label": "EmuCoach (WoW)",        "kind": "emucoach"},
 ]
-
-_WINDOWS_ONLY_NOTE = "Not available from this host — Windows-only control path (see README Known Limitations)."
 
 # Reuses the same channels the bot's own event watchers already announce to,
 # so a panel-driven action shows up exactly like a bot-driven one. Servers
@@ -103,7 +97,7 @@ async def _status(entry: dict) -> dict:
                 parts.append("Proxy 🟢 online" if proxy_up else "Proxy 🔴 offline")
             out["detail"] = " · ".join(parts)
             out["connect"] = os.getenv(f"MINECRAFT_{entry['mc_type'].upper()}_CONNECT_URL", "")
-            out["redeployable"] = True
+            out["redeployable"] = entry["mc_type"] != "modded"  # PC-hosted, no image to pull
         elif kind == "satisfactory":
             gs = await _sf.get_state()
             out["online"] = gs is not None
@@ -116,21 +110,11 @@ async def _status(entry: dict) -> dict:
             out["online"] = await _pw.is_running()
             out["connect"] = os.getenv("PALWORLD_CONNECT_URL", "")
             out["redeployable"] = True
-        elif kind == "valheim":
-            detail = await asyncio.to_thread(_valheim.server_status)
-            out["detail"] = detail
-            out["online"] = "running" in detail.lower()
-        elif kind == "enshrouded":
-            out["detail"] = "Status not tracked for Enshrouded — use Start/Stop directly."
         elif kind == "emucoach":
             detail = await _emucoach.server_status()
             out["detail"] = detail
             out["online"] = "🟢" in detail
             out["connect"] = os.getenv("EMUCOACH_CONNECT_URL", "")
-    except AttributeError:
-        # Valheim/Enshrouded call Windows-only subprocess APIs (CREATE_NEW_CONSOLE)
-        # and can never succeed while the bot runs in its Linux container.
-        out["detail"] = _WINDOWS_ONLY_NOTE
     except Exception as e:
         logger.warning("status check failed for %s: %s", entry["id"], e)
         out["detail"] = f"Error checking status: {e}"
@@ -139,47 +123,33 @@ async def _status(entry: dict) -> dict:
 
 async def _start(entry: dict) -> str:
     kind = entry["kind"]
-    try:
-        if kind == "minecraft":
-            ok = await MinecraftServer().start(entry["mc_type"])
-            return "Start requested." if ok else "Failed to start — check SSH/Docker config."
-        if kind == "satisfactory":
-            ok = await _sf.start()
-            return "Start requested." if ok else "Failed to start — check SSH/Docker config."
-        if kind == "palworld":
-            ok = await _pw.start()
-            return "Start requested." if ok else "Failed to start — check SSH/Docker config."
-        if kind == "valheim":
-            return await asyncio.to_thread(_valheim.start_server)
-        if kind == "enshrouded":
-            return await asyncio.to_thread(_enshrouded.start_server)
-        if kind == "emucoach":
-            return await _emucoach.start_server()
-    except AttributeError:
-        return _WINDOWS_ONLY_NOTE
+    if kind == "minecraft":
+        ok = await MinecraftServer().start(entry["mc_type"])
+        return "Start requested." if ok else "Failed to start — check SSH/Docker config."
+    if kind == "satisfactory":
+        ok = await _sf.start()
+        return "Start requested." if ok else "Failed to start — check SSH/Docker config."
+    if kind == "palworld":
+        ok = await _pw.start()
+        return "Start requested." if ok else "Failed to start — check SSH/Docker config."
+    if kind == "emucoach":
+        return await _emucoach.start_server()
     return "Unsupported action."
 
 
 async def _stop(entry: dict) -> str:
     kind = entry["kind"]
-    try:
-        if kind == "minecraft":
-            await MinecraftServer().stop(entry["mc_type"])
-            return "Stop requested."
-        if kind == "satisfactory":
-            await _sf.stop()
-            return "Stop requested."
-        if kind == "palworld":
-            await _pw.stop()
-            return "Stop requested."
-        if kind == "valheim":
-            return await asyncio.to_thread(_valheim.stop_server)
-        if kind == "enshrouded":
-            return await asyncio.to_thread(_enshrouded.stop_server, "enshrouded_server.exe")
-        if kind == "emucoach":
-            return await _emucoach.stop_server()
-    except AttributeError:
-        return _WINDOWS_ONLY_NOTE
+    if kind == "minecraft":
+        await MinecraftServer().stop(entry["mc_type"])
+        return "Stop requested."
+    if kind == "satisfactory":
+        await _sf.stop()
+        return "Stop requested."
+    if kind == "palworld":
+        await _pw.stop()
+        return "Stop requested."
+    if kind == "emucoach":
+        return await _emucoach.stop_server()
     return "Unsupported action."
 
 

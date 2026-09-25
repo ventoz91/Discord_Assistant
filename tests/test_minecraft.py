@@ -67,3 +67,39 @@ async def test_proxy_running_none_when_disabled(server, monkeypatch):
 async def _ok_true(sent, cmd):
     sent.append(cmd)
     return True, "true"
+
+
+async def test_modded_start_uses_systemd_not_compose(monkeypatch):
+    mc = MinecraftServer()
+    calls = []
+
+    async def fake_start(self):
+        calls.append(self.unit())
+        return True
+
+    async def no_compose(self, cmd, timeout=30, input_text=None):
+        raise AssertionError("modded must not touch docker compose")
+
+    monkeypatch.setattr("gamefunc.user_service.RemoteUserService.start", fake_start)
+    monkeypatch.setattr("gamefunc.compose_server.DockerComposeGameServer._ssh_run", no_compose)
+    assert await mc.start("modded") is True
+    assert calls == ["minecraft-modded"]
+
+
+async def test_modded_has_no_proxy():
+    assert await MinecraftServer().proxy_running("modded") is None
+
+
+async def test_modded_stop_falls_back_to_systemd_when_rcon_down(monkeypatch):
+    monkeypatch.setenv("MINECRAFT_MODDED_SSH_HOST", "10.0.0.5")
+    mc = MinecraftServer()
+
+    async def rcon_down(server_type, command):
+        raise ConnectionRefusedError("rcon down")
+
+    async def fake_stop(self):
+        return True
+
+    monkeypatch.setattr(mc, "_rcon", rcon_down)
+    monkeypatch.setattr("gamefunc.user_service.RemoteUserService.stop", fake_stop)
+    assert await mc.stop("modded") == "Stopped via systemd."

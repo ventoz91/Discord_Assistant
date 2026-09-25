@@ -1,13 +1,12 @@
-import subprocess
 import asyncio
 import os
 import re
-import shlex
 import socket
 import struct
 import time
 
 from gamefunc.compose_server import DockerComposeGameServer
+from gamefunc.user_service import RemoteUserService
 
 _COLOR_RE = re.compile(r'§.')
 
@@ -58,8 +57,9 @@ def _rcon_command(host: str, port: int, password: str, command: str, timeout: fl
 
 
 class MinecraftServer:
-    # Server types managed over SSH+Docker (as opposed to 'modded', which launches
-    # a local process via kitty — see start()). Maps type -> compose service name.
+    # Server types managed over SSH+Docker. Maps type -> compose service name.
+    # 'modded' instead runs as a systemd user service on a desktop PC (the
+    # Docker host can't run it well) — see self._modded.
     _SSH_COMPOSE_SERVICE = {
         'vanilla':  'minecraft',
         'creative': 'minecraft-creative',
@@ -83,14 +83,9 @@ class MinecraftServer:
                 'password': os.getenv('MINECRAFT_CREATIVE_RCON_PASSWORD', ''),
             },
         }
-        self.server_dirs = {
-            'vanilla': os.getenv('MINECRAFT_VANILLA_DIR', ''),
-            'modded':  os.getenv('MINECRAFT_MODDED_DIR', ''),
-        }
         # vanilla/creative are SSH+Docker-compose services; delegate that plumbing
         # to the shared DockerComposeGameServer instead of duplicating it (also
-        # gives us pull_and_redeploy() for free). modded stays a local kitty
-        # launch, handled separately in start().
+        # gives us pull_and_redeploy() for free).
         self._compose = {
             server_type: DockerComposeGameServer(
                 host=self._env_getter(server_type, 'SSH_HOST'),
@@ -100,6 +95,10 @@ class MinecraftServer:
             )
             for server_type, service in self._SSH_COMPOSE_SERVICE.items()
         }
+        self._modded = RemoteUserService(
+            'MINECRAFT_MODDED_SSH_HOST', 'MINECRAFT_MODDED_SSH_USER',
+            'MINECRAFT_MODDED_SERVICE', default_unit='minecraft-modded',
+        )
 
     @staticmethod
     def _env_getter(server_type: str, suffix: str):
@@ -117,7 +116,7 @@ class MinecraftServer:
         up (RCON answers, panel says online) but unjoinable. Same host/compose
         dir as the backend. MINECRAFT_PROXY_SERVICE='' disables."""
         service = os.getenv('MINECRAFT_PROXY_SERVICE', 'mc-proxy').strip()
-        if not service:
+        if not service or server_type not in self._compose:
             return None
         return DockerComposeGameServer(
             host=self._env_getter(server_type, 'SSH_HOST'),
@@ -133,24 +132,20 @@ class MinecraftServer:
         return await proxy.is_running() if proxy else None
 
     async def start(self, server_type: str) -> bool:
-        if server_type in self._compose:
-            if not os.getenv(f'MINECRAFT_{server_type.upper()}_SSH_HOST', ''):
-                return False
-            if not await self._compose[server_type].start():
-                return False
-            # Bring the proxy up too. Its compose depends_on lists both backends
-            # as required, so this also starts the other Minecraft server. Left
-            # running on stop: it's harmless idle and the other backend may still
-            # need it.
-            proxy = self._proxy(server_type)
-            return await proxy.start() if proxy else True
-        else:
-            server_dir = self.server_dirs.get(server_type, '')
-            if not server_dir:
-                return False
-            local_cmd = f'kitty --hold -d {server_dir} -e bash -c "./newrun.sh"'
-            subprocess.Popen(shlex.split(local_cmd))
-            return True
+        if server_type == 'modded':
+            return await self._modded.start()
+        if server_type not in self._compose:
+            return False
+        if not os.getenv(f'MINECRAFT_{server_type.upper()}_SSH_HOST', ''):
+            return False
+        if not await self._compose[server_type].start():
+            return False
+        # Bring the proxy up too. Its compose depends_on lists both backends
+        # as required, so this also starts the other Minecraft server. Left
+        # running on stop: it's harmless idle and the other backend may still
+        # need it.
+        proxy = self._proxy(server_type)
+        return await proxy.start() if proxy else True
 
     async def pull_and_redeploy(self, server_type: str) -> bool:
         """Only meaningful for the SSH+Docker types (vanilla/creative)."""
@@ -168,6 +163,10 @@ class MinecraftServer:
         try:
             return await self._rcon(server_type, 'stop')
         except Exception as e:
+            # RCON unreachable: for the PC-hosted modded server, stopping the
+            # systemd unit still shuts it down cleanly (SIGTERM saves the world).
+            if server_type == 'modded' and self._modded.configured():
+                return 'Stopped via systemd.' if await self._modded.stop() else str(e)
             return str(e)
 
     async def players(self, server_type: str) -> str:

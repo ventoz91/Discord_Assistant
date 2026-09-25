@@ -177,7 +177,7 @@ class MinecraftPanel(discord.ui.View):
         await self._set('modded', 'starting', interaction.message)
         if not await self.server.start('modded'):
             await self._set('modded', 'offline', interaction.message)
-            await interaction.followup.send('Failed to launch modded server — check MINECRAFT_MODDED_DIR.', ephemeral=True)
+            await interaction.followup.send('Failed to start modded server — is the PC on and MINECRAFT_MODDED_SSH_HOST set?', ephemeral=True)
             return
         ready = await self.server.wait_until_ready('modded')
         if ready:

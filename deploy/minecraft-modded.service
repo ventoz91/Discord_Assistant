@@ -1,0 +1,21 @@
+# systemd user unit for the PC-hosted modded Minecraft server.
+# Install: ~/.config/systemd/user/minecraft-modded.service, then
+#   systemctl --user daemon-reload
+# Deliberately no [Install] section — it's started on demand by the bot (or
+# `systemctl --user start minecraft-modded`), never at boot. Needs lingering
+# (`loginctl enable-linger $USER`) so it can run while logged out.
+# Console: journalctl --user -u minecraft-modded -f
+
+[Unit]
+Description=Modded Minecraft server (AlexServer, Fabric)
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Games/AlexServer
+ExecStart=%h/Games/AlexServer/newrun.sh
+# RCON `stop` exits 0; SIGTERM from `systemctl stop` exits 143 after the JVM
+# shutdown hook saves the world — both are clean stops.
+SuccessExitStatus=143
+TimeoutStopSec=120
+Restart=no

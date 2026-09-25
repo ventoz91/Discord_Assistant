@@ -31,9 +31,8 @@ TEMPLATES = {
     "valheim": {
         "label": "Valheim (Linux/Docker)",
         "description": (
-            "Dedicated Valheim server (lloesche/valheim-server). Independent of "
-            "the Windows-hosted Valheim server the bot already manages — this "
-            "deploys a separate Linux instance."
+            "Dedicated Valheim server (lloesche/valheim-server), deployed as a "
+            "standalone Linux/Docker instance."
         ),
         "image": "lloesche/valheim-server:latest",
         "default_volume_path": "/config",
