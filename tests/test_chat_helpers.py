@@ -149,3 +149,42 @@ class TestEmbedImageSource:
         refreshed = types.SimpleNamespace(embeds=[])
         msg = types.SimpleNamespace(id=1, embeds=[], channel=RefetchChan(refreshed))
         assert await chat.ChatCog._embed_image_source(None, msg) == (None, None)
+
+
+class TestBlankReplies:
+    """A whitespace-only model reply used to crash on chunks[0] (split_message
+    returns [] for blank text)."""
+
+    async def test_whitespace_reply_sends_nothing_and_does_not_crash(self, monkeypatch):
+        import contextlib
+        import types
+        import cogs.chat as chat
+
+        sent = []
+
+        class Channel:
+            id = 42
+            def typing(self):
+                return contextlib.AsyncExitStack()
+            async def send(self, *a, **kw):
+                sent.append(a)
+                return types.SimpleNamespace(id=1)
+
+        async def empty(*a, **kw): return []
+        async def reply(*a, **kw): return "   \n  ", []
+        async def noop(*a, **kw): return None
+
+        monkeypatch.setattr(chat, "async_retrieve", empty)
+        monkeypatch.setattr(chat, "generate_gpt_response", reply)
+        monkeypatch.setattr(chat, "async_store_message", noop)
+        monkeypatch.setattr(chat, "get_user_context", lambda *a: None)
+        monkeypatch.setattr(chat, "get_debate_context", lambda *a: None)
+        monkeypatch.setattr(chat, "mark_surfaced", lambda *a: None)
+
+        cog = chat.ChatCog(types.SimpleNamespace(channel_image_state={}))
+        author = types.SimpleNamespace(id=7, display_name="Knova")
+        await cog._run_llm_flow(
+            Channel(), author, query="hi", prompt_content="Knova: hi", message_history=[],
+            history_cutoff_ts=0, channel_behaviour="a dwarf", context_snippet="hi",
+        )
+        assert sent == []

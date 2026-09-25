@@ -11,6 +11,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from gamefunc.dragonwilds import DragonwildsServer
 from gamefunc.emucoach import EmucoachServer
 from gamefunc.minecraft import MinecraftServer
 from gamefunc.palworld import PalworldServer
@@ -23,12 +24,13 @@ logger = logging.getLogger("bot.webpanel")
 router = APIRouter()
 templates = Jinja2Templates(directory="webpanel/templates")
 
-# Satisfactory/Palworld/Emucoach read their SSH/RCON config
+# Satisfactory/Palworld/Dragonwilds/Emucoach read their SSH/RCON config
 # lazily on every call (see gamefunc/compose_server.py and each class), so a
 # single process-lifetime instance is safe here and avoids e.g. Satisfactory
 # re-fetching an auth token on every request.
 _sf = SatisfactoryServer()
 _pw = PalworldServer()
+_dw = DragonwildsServer()
 _emucoach = EmucoachServer()
 
 # MinecraftServer reads its RCON/SSH settings once in __init__ (unlike the
@@ -42,6 +44,7 @@ FIXED_SERVERS = [
     {"id": "minecraft_modded",   "label": "Minecraft — Modded",   "kind": "minecraft", "mc_type": "modded"},
     {"id": "satisfactory",       "label": "Satisfactory",         "kind": "satisfactory"},
     {"id": "palworld",           "label": "Palworld",             "kind": "palworld"},
+    {"id": "dragonwilds",        "label": "RuneScape: Dragonwilds", "kind": "dragonwilds"},
     {"id": "emucoach",           "label": "EmuCoach (WoW)",        "kind": "emucoach"},
 ]
 
@@ -52,6 +55,7 @@ _EVENTS_CHANNEL_ENV = {
     "minecraft_vanilla":  "MINECRAFT_EVENTS_CHANNEL_ID",
     "minecraft_creative": "MINECRAFT_CREATIVE_EVENTS_CHANNEL_ID",
     "satisfactory":       "SATISFACTORY_EVENTS_CHANNEL_ID",
+    "dragonwilds":        "DRAGONWILDS_CHANNEL_ID",
 }
 
 
@@ -110,6 +114,11 @@ async def _status(entry: dict) -> dict:
             out["online"] = await _pw.is_running()
             out["connect"] = os.getenv("PALWORLD_CONNECT_URL", "")
             out["redeployable"] = True
+        elif kind == "dragonwilds":
+            # No redeploy: built image whose entrypoint updates the game on
+            # every start (see gamefunc/dragonwilds.py).
+            out["online"] = await _dw.is_running()
+            out["connect"] = os.getenv("DRAGONWILDS_CONNECT_URL", "")
         elif kind == "emucoach":
             detail = await _emucoach.server_status()
             out["detail"] = detail
@@ -132,6 +141,9 @@ async def _start(entry: dict) -> str:
     if kind == "palworld":
         ok = await _pw.start()
         return "Start requested." if ok else "Failed to start — check SSH/Docker config."
+    if kind == "dragonwilds":
+        ok = await _dw.start()
+        return "Start requested." if ok else "Failed to start — check SSH/Docker config."
     if kind == "emucoach":
         return await _emucoach.start_server()
     return "Unsupported action."
@@ -147,6 +159,9 @@ async def _stop(entry: dict) -> str:
         return "Stop requested."
     if kind == "palworld":
         await _pw.stop()
+        return "Stop requested."
+    if kind == "dragonwilds":
+        await _dw.stop()
         return "Stop requested."
     if kind == "emucoach":
         return await _emucoach.stop_server()

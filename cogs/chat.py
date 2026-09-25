@@ -124,9 +124,9 @@ class ChatCog(commands.Cog):
             user_caption = message.content if message.content and not url_only_message else None
             instructions = user_caption or default_prompt
             message_history = await fetch_message_history(message.channel, self.bot)
-            response_text = await analyze_image(
+            response_text = (await analyze_image(
                 base64_image, instructions, message_history, channel_behaviour
-            )
+            ) or "").strip()
             await _maybe_send_degradation_notice(message.channel)
             sent_analysis = await message.channel.send(response_text or "Sorry, I couldn't analyze the image.")
             if response_text:
@@ -343,6 +343,9 @@ class ChatCog(commands.Cog):
                     "suggest_activity": _make_suggest_executor(channel.id),
                 }
             )
+            # A whitespace-only reply is no reply: split_message() returns []
+            # for it, and Discord rejects blank messages.
+            gpt_response = (gpt_response or "").strip()
 
             restart_requested = False
             for tc in tool_calls:
