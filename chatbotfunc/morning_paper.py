@@ -93,6 +93,7 @@ async def _compose_and_post(bot, channel_id: int) -> bool:
         [{"role": "user", "content": _PAPER_PROMPT.format(threads_section=threads_section, log=log_block)}],
         personality,
         max_completion_tokens=int(os.getenv("MORNING_PAPER_MAX_TOKENS", "600")),
+        usage_tag="morning_paper",
     )
     if not text or text.startswith("An error occurred"):
         logger.warning("morning paper: generation failed for channel %d", channel_id)

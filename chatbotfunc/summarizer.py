@@ -80,6 +80,7 @@ async def summarize_channel(channel_id: int, model: str):
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=max_tokens,
             temperature=0.3,
+            usage_tag="summaries",
         )
         summary = response.choices[0].message.content.strip()
     except Exception:

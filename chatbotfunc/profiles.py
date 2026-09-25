@@ -149,6 +149,7 @@ async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot
             max_completion_tokens=int(os.getenv("USER_PROFILE_EXTRACT_TOKENS", "200")),
             temperature=0.2,
             response_format=_FACTS_FORMAT,
+            usage_tag="profiles",
         )
         choice = response.choices[0]
         if choice.finish_reason == "length" or not choice.message.content:

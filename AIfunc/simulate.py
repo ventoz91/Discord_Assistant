@@ -24,6 +24,7 @@ class ConversationSimulator:
     async def _get_name(self, descriptor: str) -> str:
         resp = await async_chat_completion(
             model=self.model_chat,
+            usage_tag="simulate",
             messages=[{"role": "user", "content": f"Reply with only the character's name from this description, nothing else: {descriptor}"}],
             max_completion_tokens=15,
             temperature=0,
@@ -76,6 +77,7 @@ class ConversationSimulator:
 
             response = await async_chat_completion(
                 model=self.model_chat,
+                usage_tag="simulate",
                 messages=messages,
                 temperature=1.5,
                 top_p=0.9,
@@ -93,6 +95,7 @@ class ConversationSimulator:
         ]
         judge_response = await async_chat_completion(
             model=self.model_chat,
+            usage_tag="simulate",
             messages=judge_messages,
             temperature=1.0,
             max_completion_tokens=150,

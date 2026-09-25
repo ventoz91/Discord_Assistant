@@ -183,6 +183,7 @@ async def scan_channel(bot, channel_id: int, model: str):
             max_completion_tokens=int(os.getenv("DEBATE_SCAN_MAX_TOKENS", "600")),
             temperature=0.3,
             response_format=_ACTIONS_FORMAT,
+            usage_tag="debates",
         )
         choice = response.choices[0]
         if choice.finish_reason == "length" or not choice.message.content:

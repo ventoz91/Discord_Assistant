@@ -124,7 +124,7 @@ class RAGCog(commands.Cog):
                 "role": "user",
                 "content": "Give me a concise TL;DR of this conversation. Cover the main topics, key points, and anything notable. Be brief.",
             })
-            summary = await generate_gpt_response(history, self.bot.chatgpt_behaviour)
+            summary = await generate_gpt_response(history, self.bot.chatgpt_behaviour, usage_tag="summarize")
             chunks = split_message(f"**TL;DR — #{ctx.channel.name}**\n{summary}")
             await ctx.respond(chunks[0])
             for chunk in chunks[1:]:
@@ -181,6 +181,7 @@ class RAGCog(commands.Cog):
                     f"anything interesting, funny, or important.\n\nCHANNEL LOG:\n" + "\n".join(lines)
                 )}],
                 self.bot.chatgpt_behaviour,
+                usage_tag="missed",
             )
             chunks = split_message(f"**What you missed:**\n{summary}")
             await ctx.respond(chunks[0])

@@ -56,6 +56,7 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
     ],
     "🎲  MISC": [
         ("!model  ·  /model",        "See or switch the chat and image models"),
+        ("!usage  ·  /usage",        "Estimated OpenAI spend (today / 7d / 30d)"),
         ("!sandwich  ·  /sandwich",  "Random sandwich with an AI image"),
     ],
 }

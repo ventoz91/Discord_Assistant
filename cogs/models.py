@@ -4,6 +4,7 @@ import discord
 from discord.ext import bridge, commands
 
 from chatbotfunc import model_settings as ms
+from chatbotfunc import usage
 
 logger = logging.getLogger("bot.models")
 
@@ -81,6 +82,34 @@ class ModelsCog(commands.Cog):
         view = ModelView()
         msg = await ctx.respond(embed=build_embed(), view=view)
         view.message = await msg.original_response() if hasattr(msg, "original_response") else msg
+
+    @bridge.bridge_command(name="usage", description="Estimated OpenAI spend: today, 7 and 30 days")
+    async def usage_cmd(self, ctx):
+        await ctx.respond(embed=build_usage_embed())
+
+
+def _money(x: float) -> str:
+    return f"${x:,.2f}" if x >= 0.995 else f"{x * 100:.1f}¢"
+
+
+def _breakdown(costs: dict, limit: int = 8) -> str:
+    rows = sorted(costs.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return "\n".join(f"`{name}` — {_money(cost)}" for name, cost in rows if cost > 0) or "—"
+
+
+def build_usage_embed() -> discord.Embed:
+    today, week, month = usage.summarize(1), usage.summarize(7), usage.summarize(30)
+    embed = discord.Embed(title="💸 OpenAI usage", color=0xF1C40F)
+    for label, s in (("Today", today), ("Last 7 days", week), ("Last 30 days", month)):
+        embed.add_field(name=label, value=f"**{_money(s['cost'])}**\n{s['calls']} calls · {s['images']} images",
+                        inline=True)
+    embed.add_field(name="30 days by feature", value=_breakdown(month["by_feature"]), inline=True)
+    embed.add_field(name="30 days by model", value=_breakdown(month["by_model"]), inline=True)
+    footer = "Estimates from list prices; token counts are exact."
+    if month["unpriced"]:
+        footer += f" {month['unpriced']} calls used a model with no price set."
+    embed.set_footer(text=footer)
+    return embed
 
 
 def setup(bot):

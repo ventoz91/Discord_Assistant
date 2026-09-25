@@ -10,6 +10,7 @@ from PIL import Image
 from discord.ext import commands
 
 from ragfunc.memory import async_get_by_message_id
+from chatbotfunc.usage import record_chat
 
 logger = logging.getLogger("bot.utils")
 
@@ -238,7 +239,7 @@ async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: 
         return message_history, oldest_ts
     return message_history
 
-async def async_chat_completion(*args, **kwargs):
+async def async_chat_completion(*args, usage_tag: str = "other", **kwargs):
     # GPT-6 models default to "medium" reasoning, which Chat Completions
     # rejects alongside function tools, and whose hidden reasoning tokens eat
     # the small max_completion_tokens caps used throughout. REASONING_EFFORT
@@ -248,5 +249,7 @@ async def async_chat_completion(*args, **kwargs):
     if effort and effort != "off":
         kwargs.setdefault("reasoning_effort", effort)
     response = await asyncio.to_thread(openai.chat.completions.create, *args, **kwargs)
+    # usage_tag labels the call for /usage (chat, vision, profiles, ...).
+    await asyncio.to_thread(record_chat, kwargs.get("model", ""), getattr(response, "usage", None), usage_tag)
     return response
 

@@ -129,7 +129,7 @@ async def _deliver(bot, reminder: dict):
             f"Address them as {mention}."
         )
         text = await generate_gpt_response(
-            [{"role": "user", "content": prompt}], personality
+            [{"role": "user", "content": prompt}], personality, usage_tag="reminders"
         )
         if not text:
             text = fallback

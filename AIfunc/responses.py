@@ -1,5 +1,6 @@
 from chatbotfunc.utils import async_chat_completion
 from chatbotfunc.model_settings import get_chat_model, get_image_model
+from chatbotfunc.usage import record_image
 from openai import OpenAI
 import openai
 import logging
@@ -34,7 +35,7 @@ UNCERTAINTY: If you don't know something, say so in character rather than fabric
 Personality: {personality}"""
 
 
-async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None, user_context=None, debate_context=None):
+async def generate_gpt_response(message_history, chatgpt_behaviour, max_completion_tokens=None, temperature=None, top_p=0.9, rag_context=None, tools=None, auto_resolve=None, user_context=None, debate_context=None, usage_tag="chat"):
     # auto_resolve: dict[tool_name, async callable(args_dict) -> str]
     # Tools listed here are executed internally; only remaining tool calls are returned to the caller.
     max_tokens = max_completion_tokens or int(os.getenv("MAX_TOKENS", "500"))
@@ -58,6 +59,7 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         temperature=temperature,
         top_p=top_p,
         max_completion_tokens=max_tokens,
+        usage_tag=usage_tag,
     )
     if tools:
         kwargs["tools"] = tools
@@ -119,6 +121,7 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
                 temperature=temperature,
                 top_p=top_p,
                 max_completion_tokens=max_tokens,
+                usage_tag=usage_tag,
             )
             if follow_tools:
                 follow_kwargs["tools"] = follow_tools
@@ -141,7 +144,7 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
         return (err, []) if tools else err
     
 
-async def analyze_image(base64_image: str, instructions: str, message_history: list, chatgpt_behaviour: str, user_context: str = None) -> str:
+async def analyze_image(base64_image: str, instructions: str, message_history: list, chatgpt_behaviour: str, user_context: str = None, usage_tag: str = "vision") -> str:
     system_content = BASE_SYSTEM_PROMPT.format(personality=chatgpt_behaviour)
     if user_context:
         system_content += f"\n\nUSER PROFILE:\n{user_context}"
@@ -160,6 +163,7 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
             model=get_chat_model(),
             messages=messages,
             max_completion_tokens=int(os.getenv("ANALYZE_MAX_TOKENS", "500")),
+            usage_tag=usage_tag,
         )
         if response.choices:
             if response.usage:
@@ -183,6 +187,7 @@ async def generate_image(prompt, model=None, size=None, quality=None, n=1):
             quality=quality,
             n=n,
         )
+        await asyncio.to_thread(record_image, model, getattr(response, "usage", None), "images")
 
         # gpt-image models always return b64_json, never a URL
         image_b64 = response.data[0].b64_json
@@ -215,15 +220,17 @@ async def transform_image(image_bytes: bytes, instructions: str, size=None, qual
         img.save(png_buffer, format="PNG")
         png_buffer.seek(0)
 
+        model = get_image_model()
         response = await asyncio.to_thread(
             client.images.edit,
-            model=get_image_model(),
+            model=model,
             image=("image.png", png_buffer, "image/png"),
             prompt=instructions,
             size=size,
             quality=quality,
             n=1,
         )
+        await asyncio.to_thread(record_image, model, getattr(response, "usage", None), "images")
 
         image_b64 = response.data[0].b64_json
         if not image_b64:

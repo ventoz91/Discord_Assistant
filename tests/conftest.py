@@ -42,3 +42,10 @@ class FakeChannel:
     async def history(self, limit):
         for m in self._messages[:limit]:
             yield m
+
+
+@pytest.fixture(autouse=True)
+def _isolated_usage_store(tmp_path, monkeypatch):
+    """Never let a test write the real data/usage.json."""
+    import chatbotfunc.usage as usage
+    monkeypatch.setattr(usage, "_PATH", str(tmp_path / "usage.json"))

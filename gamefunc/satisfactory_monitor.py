@@ -74,6 +74,7 @@ class SatisfactoryMonitor:
                 ],
                 max_completion_tokens=60,
                 temperature=1.2,
+                usage_tag="announcements",
             )
             await channel.send(resp.choices[0].message.content.strip())
         except Exception as e:
