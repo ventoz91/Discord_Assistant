@@ -541,7 +541,7 @@ loginctl enable-linger "$USER"   # lets the unit run while logged out
 restrict,from="<bot-host-ip>",command="/home/<user>/.local/bin/bot-ssh-gate-systemd minecraft-modded" ssh-ed25519 AAAA... discord-bot
 ```
 
-Add the PC's host key to the bot's `ssh/known_hosts`, and let the bot host reach the PC on 22 (SSH) and the RCON port through the PC's firewall. Server console: `journalctl --user -u minecraft-modded -f`.
+Add the PC's host keys (all types, or SSH warns about updating the read-only file) to the bot's `ssh/known_hosts`, and let the bot host reach the PC on 22 (SSH) and the RCON port. **WireGuard gotcha:** if the PC runs a WireGuard tunnel whose AllowedIPs cover the LAN, the PC answers the bot host through the tunnel (from its tunnel IP) and the bot host drops the replies — every port looks filtered. Keep the tunnel off at home, or add `PostUp = ip route add <bot-host-ip>/32 dev <lan-if> src <pc-lan-ip>` to the tunnel config. Server console: `journalctl --user -u minecraft-modded -f`.
 
 **4. Switch over:** `docker compose up --build -d`, then exercise start/stop/status for each server and a web-panel deploy/delete. Check `journalctl -t bot-ssh-gate` on the game host for any `DENIED` lines.
 
