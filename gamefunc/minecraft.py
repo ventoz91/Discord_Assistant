@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import re
 import socket
@@ -11,6 +12,9 @@ from gamefunc.user_service import RemoteUserService
 _COLOR_RE = re.compile(r'§.')
 
 RCON_CONNECT_TIMEOUT = 5.0  # seconds per RCON request (socket-level, thread-safe)
+
+logger = logging.getLogger("bot.minecraft")
+_background: set[asyncio.Task] = set()  # keeps fire-and-forget tasks from being GC'd
 
 
 class RconError(Exception):
@@ -133,7 +137,12 @@ class MinecraftServer:
 
     async def start(self, server_type: str) -> bool:
         if server_type == 'modded':
-            return await self._modded.start()
+            if not await self._modded.start():
+                return False
+            task = asyncio.create_task(self._reload_when_ready())
+            _background.add(task)
+            task.add_done_callback(_background.discard)
+            return True
         if server_type not in self._compose:
             return False
         if not os.getenv(f'MINECRAFT_{server_type.upper()}_SSH_HOST', ''):
@@ -152,12 +161,29 @@ class MinecraftServer:
         compose = self._compose.get(server_type)
         return await compose.pull_and_redeploy() if compose else False
 
-    async def _rcon(self, server_type: str, command: str) -> str:
+    async def _rcon(self, server_type: str, command: str, timeout: float = RCON_CONNECT_TIMEOUT) -> str:
         info = self.rcon_settings[server_type]
         return await asyncio.to_thread(
             _rcon_command,
-            info['host'], info['port'], info['password'], command, RCON_CONNECT_TIMEOUT,
+            info['host'], info['port'], info['password'], command, timeout,
         )
+
+    async def _reload_when_ready(self):
+        """The modded server's datapack functions (Legendary Encounters spawns
+        and dungeons, Swapballs, ...) fail to parse at startup — LuckPerms
+        isn't initialised yet when they're permission-checked (NPE in
+        VerboseHandler; 33 functions, verified 2026-09-25). A `reload` once the
+        server is up parses them all cleanly. MINECRAFT_MODDED_RELOAD_ON_START
+        =false disables."""
+        if os.getenv('MINECRAFT_MODDED_RELOAD_ON_START', 'true').strip().lower() == 'false':
+            return
+        try:
+            if await self.wait_until_ready('modded', timeout=300):
+                await asyncio.sleep(5)  # let startup finish settling
+                await self._rcon('modded', 'reload', timeout=120)  # slow on a big modpack
+                logger.info("modded: post-start datapack reload done")
+        except Exception:
+            logger.warning("modded: post-start reload failed", exc_info=True)
 
     async def stop(self, server_type: str) -> str:
         try:

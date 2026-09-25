@@ -82,6 +82,7 @@ async def test_modded_start_uses_systemd_not_compose(monkeypatch):
 
     monkeypatch.setattr("gamefunc.user_service.RemoteUserService.start", fake_start)
     monkeypatch.setattr("gamefunc.compose_server.DockerComposeGameServer._ssh_run", no_compose)
+    monkeypatch.setenv("MINECRAFT_MODDED_RELOAD_ON_START", "false")
     assert await mc.start("modded") is True
     assert calls == ["minecraft-modded"]
 
@@ -143,3 +144,29 @@ async def test_vanilla_stop_is_rcon_only(monkeypatch):
     monkeypatch.setattr(mc, "_rcon", rcon)
     monkeypatch.setattr("gamefunc.user_service.RemoteUserService.stop", unit_stop)
     assert await mc.stop("vanilla") == "ok" and calls == ["vanilla"]
+
+
+async def test_modded_start_reloads_datapacks_once_ready(monkeypatch):
+    import asyncio
+    import gamefunc.minecraft as minecraft
+    mc = MinecraftServer()
+    sent = []
+
+    async def fake_start(self):
+        return True
+
+    async def ready(server_type, timeout=300):
+        return True
+
+    async def rcon(server_type, command, timeout=5):
+        sent.append((command, timeout))
+        return ""
+
+    monkeypatch.setattr("gamefunc.user_service.RemoteUserService.start", fake_start)
+    monkeypatch.setattr(mc, "wait_until_ready", ready)
+    monkeypatch.setattr(mc, "_rcon", rcon)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(minecraft.asyncio, "sleep", lambda s: real_sleep(0))
+    assert await mc.start("modded") is True
+    await asyncio.gather(*minecraft._background)
+    assert sent == [("reload", 120)]
