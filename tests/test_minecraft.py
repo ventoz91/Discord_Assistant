@@ -103,3 +103,43 @@ async def test_modded_stop_falls_back_to_systemd_when_rcon_down(monkeypatch):
     monkeypatch.setattr(mc, "_rcon", rcon_down)
     monkeypatch.setattr("gamefunc.user_service.RemoteUserService.stop", fake_stop)
     assert await mc.stop("modded") == "Stopped via systemd."
+
+
+async def test_modded_stop_saves_via_rcon_then_reaps_unit(monkeypatch):
+    monkeypatch.setenv("MINECRAFT_MODDED_SSH_HOST", "10.0.0.5")
+    mc = MinecraftServer()
+    order = []
+
+    async def rcon(server_type, command):
+        order.append(f"rcon {command}")
+        return "Stopping the server"
+
+    async def stopped(server_type, timeout=60):
+        order.append("wait rcon down")
+        return True
+
+    async def unit_stop(self):
+        order.append("systemctl stop")
+        return True
+
+    monkeypatch.setattr(mc, "_rcon", rcon)
+    monkeypatch.setattr(mc, "wait_until_stopped", stopped)
+    monkeypatch.setattr("gamefunc.user_service.RemoteUserService.stop", unit_stop)
+    assert await mc.stop("modded") == "Stopping the server"
+    assert order == ["rcon stop", "wait rcon down", "systemctl stop"]
+
+
+async def test_vanilla_stop_is_rcon_only(monkeypatch):
+    mc = MinecraftServer()
+    calls = []
+
+    async def rcon(server_type, command):
+        calls.append(server_type)
+        return "ok"
+
+    async def unit_stop(self):
+        raise AssertionError("vanilla must not touch systemd")
+
+    monkeypatch.setattr(mc, "_rcon", rcon)
+    monkeypatch.setattr("gamefunc.user_service.RemoteUserService.stop", unit_stop)
+    assert await mc.stop("vanilla") == "ok" and calls == ["vanilla"]

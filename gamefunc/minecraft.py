@@ -161,7 +161,15 @@ class MinecraftServer:
 
     async def stop(self, server_type: str) -> str:
         try:
-            return await self._rcon(server_type, 'stop')
+            result = await self._rcon(server_type, 'stop')
+            if server_type == 'modded' and self._modded.configured():
+                # RCON `stop` saves the world, but a mod thread keeps the JVM
+                # alive afterwards (seen 2026-09-25: saved, RCON closed, process
+                # still running and holding its heap). Once RCON is down the
+                # save is done, so stopping the unit just reaps the process.
+                await self.wait_until_stopped('modded', timeout=90)
+                await self._modded.stop()
+            return result
         except Exception as e:
             # RCON unreachable: for the PC-hosted modded server, stopping the
             # systemd unit still shuts it down cleanly (SIGTERM saves the world).
