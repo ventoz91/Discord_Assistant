@@ -95,13 +95,48 @@ Already tracked:
 Recent chat:
 {chat}
 
-Return ONLY a JSON array of actions. Each action is one of:
-  {{"action": "new", "topic": "<short title>", "summary": "<1-2 sentence gist>", \
-"type": "unresolved_debate" or "running_joke", "participants": ["name", ...]}}
-  {{"action": "update", "id": <existing #>, "summary": "<refreshed gist reflecting the latest turn>"}}
-  {{"action": "resolve", "id": <existing #>}}  // the group settled it or dropped it for good
+Return a list of actions. Each action is one of:
+  new: topic (short title), summary (1-2 sentence gist), type ("unresolved_debate" or \
+"running_joke"), participants (names)
+  update: id (existing #), summary (refreshed gist reflecting the latest turn)
+  resolve: id (existing #) — the group settled it or dropped it for good
+Set fields an action doesn't use to null.
 
-Return [] if nothing in this chat qualifies."""
+Return an empty list if nothing in this chat qualifies."""
+
+# Strict structured output. Strict mode needs every property listed as
+# required, so fields an action doesn't use are nullable instead of optional.
+_ACTIONS_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "debate_actions",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "actions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "action": {"type": "string", "enum": ["new", "update", "resolve"]},
+                            "id": {"type": ["integer", "null"]},
+                            "topic": {"type": ["string", "null"]},
+                            "summary": {"type": ["string", "null"]},
+                            "type": {"type": ["string", "null"],
+                                     "enum": ["unresolved_debate", "running_joke", None]},
+                            "participants": {"type": ["array", "null"], "items": {"type": "string"}},
+                        },
+                        "required": ["action", "id", "topic", "summary", "type", "participants"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["actions"],
+            "additionalProperties": False,
+        },
+    },
+}
 
 
 async def scan_channel(bot, channel_id: int, model: str):
@@ -147,23 +182,16 @@ async def scan_channel(bot, channel_id: int, model: str):
             messages=[{"role": "user", "content": _EXTRACTION_PROMPT.format(existing=existing, chat=text_block)}],
             max_completion_tokens=int(os.getenv("DEBATE_SCAN_MAX_TOKENS", "600")),
             temperature=0.3,
+            response_format=_ACTIONS_FORMAT,
         )
-        content = response.choices[0].message.content.strip()
-        match = re.search(r"\[.*\]", content, re.DOTALL)
-        actions = []
-        if match:
-            try:
-                actions = json.loads(match.group())
-            except json.JSONDecodeError:
-                # Response was truncated mid-array; salvage any complete action objects
-                objects = re.findall(r'\{[^{}]*\}', content)
-                for o in objects:
-                    try:
-                        actions.append(json.loads(o))
-                    except json.JSONDecodeError:
-                        pass
-        if not isinstance(actions, list):
-            actions = []
+        choice = response.choices[0]
+        if choice.finish_reason == "length" or not choice.message.content:
+            # Truncated or refused: leave last_scan_ts alone so the next scan
+            # retries this window instead of silently skipping it.
+            logger.warning("debate scan for channel %d returned no usable JSON (finish_reason=%s) — "
+                           "raise DEBATE_SCAN_MAX_TOKENS if this repeats", channel_id, choice.finish_reason)
+            return
+        actions = json.loads(choice.message.content)["actions"]
     except Exception:
         logger.exception("debate scan failed for channel %d", channel_id)
         return

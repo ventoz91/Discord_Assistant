@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 import threading
 import time
 
@@ -94,6 +93,23 @@ def _apply_new_facts(uid: str, display_name: str, new_facts: list[str], max_fact
         _save(profiles)
 
 
+# Strict structured output: the API guarantees this shape (top level must be
+# an object, hence the {"facts": [...]} wrapper).
+_FACTS_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "profile_facts",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"facts": {"type": "array", "items": {"type": "string"}}},
+            "required": ["facts"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot_msg: str, model: str):
     """Background task: extract new facts from an exchange and merge into the user profile.
 
@@ -120,9 +136,9 @@ async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot
         f"Already known: {existing_str}\n\n"
         f"User's message: {user_msg[:max_input]}\n"
         f"Bot's reply (full channel context — do not infer user preferences from this): {bot_msg[:max_input]}\n\n"
-        f"Return ONLY a JSON array of NEW short fact strings (under 15 words each) not already "
-        f"covered by the known facts. Return [] if nothing new.\n"
-        f'Example: ["prefers modded Minecraft", "building a Discord bot"]'
+        f"Return NEW short facts (under 15 words each) not already covered by the known facts, "
+        f"or an empty list if nothing new.\n"
+        f'Example facts: "prefers modded Minecraft", "building a Discord bot"'
     )
 
     try:
@@ -132,14 +148,14 @@ async def extract_and_update(user_id: int, display_name: str, user_msg: str, bot
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=int(os.getenv("USER_PROFILE_EXTRACT_TOKENS", "200")),
             temperature=0.2,
+            response_format=_FACTS_FORMAT,
         )
-        content = response.choices[0].message.content.strip()
-        match = re.search(r'\[.*?\]', content, re.DOTALL)
-        if not match:
+        choice = response.choices[0]
+        if choice.finish_reason == "length" or not choice.message.content:
+            logger.warning("profile extraction for %s returned no usable JSON (finish_reason=%s)",
+                           display_name, choice.finish_reason)
             return
-        new_facts = json.loads(match.group())
-        if not isinstance(new_facts, list):
-            return
+        new_facts = json.loads(choice.message.content)["facts"]
         new_facts = [f.strip() for f in new_facts if isinstance(f, str) and f.strip()]
     except Exception:
         logger.exception("profile extraction failed for %s", display_name)

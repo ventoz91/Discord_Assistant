@@ -42,3 +42,35 @@ class TestClearFacts:
 
     def test_unknown_user_zero(self):
         assert profiles.clear_facts(999) == 0
+
+
+def _completion(content, finish_reason="stop"):
+    import types
+    msg = types.SimpleNamespace(content=content)
+    return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg, finish_reason=finish_reason)])
+
+
+class TestExtractAndUpdate:
+    @staticmethod
+    def _fake(monkeypatch, content, finish_reason="stop"):
+        import chatbotfunc.utils as utils
+        seen = {}
+
+        async def fake(**kw):
+            seen.update(kw)
+            return _completion(content, finish_reason)
+
+        monkeypatch.setattr(utils, "async_chat_completion", fake)
+        return seen
+
+    async def test_merges_new_facts_and_requests_strict_schema(self, monkeypatch):
+        seen = self._fake(monkeypatch, '{"facts": ["has a cat named Mochi", "  "]}')
+        await profiles.extract_and_update(111, "Knova", "my cat Mochi is great", "Nice cat!", "m")
+        assert profiles.get_facts(111)[-1] == "has a cat named Mochi"
+        assert len(profiles.get_facts(111)) == 3  # blank fact dropped
+        assert seen["response_format"]["json_schema"]["strict"] is True
+
+    async def test_truncated_response_changes_nothing(self, monkeypatch):
+        self._fake(monkeypatch, '{"facts": ["has a c', finish_reason="length")
+        await profiles.extract_and_update(111, "Knova", "my cat Mochi is great", "Nice cat!", "m")
+        assert profiles.get_facts(111) == ["likes mushrooms", "plays modded minecraft"]
