@@ -31,6 +31,7 @@ for extension in [
     'cogs.fun',
     'cogs.rag',
     'cogs.reminders',
+    'cogs.models',
 ]:
     bot.load_extension(extension)
 

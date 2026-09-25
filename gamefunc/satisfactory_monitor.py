@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 
+from chatbotfunc.model_settings import get_chat_model
 from chatbotfunc.utils import async_chat_completion
 from gamefunc.satisfactory import SatisfactoryServer
 
@@ -66,7 +67,7 @@ class SatisfactoryMonitor:
         personality = getattr(bot, 'chatgpt_behaviour', '')
         try:
             resp = await async_chat_completion(
-                model=os.getenv('MODEL_CHAT', 'gpt-4o'),
+                model=get_chat_model(),
                 messages=[
                     {"role": "system", "content": _SYSTEM.format(personality=personality)},
                     {"role": "user",   "content": f"The factory just unlocked tech tier {tier}!"},

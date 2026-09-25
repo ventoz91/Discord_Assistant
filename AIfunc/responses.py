@@ -1,4 +1,5 @@
 from chatbotfunc.utils import async_chat_completion
+from chatbotfunc.model_settings import get_chat_model, get_image_model
 from openai import OpenAI
 import openai
 import logging
@@ -52,7 +53,7 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
     messages = [{"role": "system", "content": system_content}] + message_history
 
     kwargs = dict(
-        model=os.getenv("MODEL_CHAT"),
+        model=get_chat_model(),
         messages=messages,
         temperature=temperature,
         top_p=top_p,
@@ -113,7 +114,7 @@ async def generate_gpt_response(message_history, chatgpt_behaviour, max_completi
                 if last_round else tools
             )
             follow_kwargs = dict(
-                model=os.getenv("MODEL_CHAT"),
+                model=get_chat_model(),
                 messages=convo,
                 temperature=temperature,
                 top_p=top_p,
@@ -156,7 +157,7 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
     })
     try:
         response = await async_chat_completion(
-            model=os.getenv("MODEL_CHAT", "gpt-4o"),
+            model=get_chat_model(),
             messages=messages,
             max_completion_tokens=int(os.getenv("ANALYZE_MAX_TOKENS", "500")),
         )
@@ -169,7 +170,8 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
         logger.exception("analyze_image failed")
         return ""
 
-async def generate_image(prompt, model="gpt-image-1", size=None, quality=None, n=1):
+async def generate_image(prompt, model=None, size=None, quality=None, n=1):
+    model = model or get_image_model()
     size = size or os.getenv("IMAGE_SIZE", "1024x1024")
     quality = quality or os.getenv("IMAGE_QUALITY", "medium")
     try:
@@ -182,7 +184,7 @@ async def generate_image(prompt, model="gpt-image-1", size=None, quality=None, n
             n=n,
         )
 
-        # gpt-image-1/2 always returns b64_json, never a URL
+        # gpt-image models always return b64_json, never a URL
         image_b64 = response.data[0].b64_json
         if not image_b64:
             return None
@@ -215,7 +217,7 @@ async def transform_image(image_bytes: bytes, instructions: str, size=None, qual
 
         response = await asyncio.to_thread(
             client.images.edit,
-            model="gpt-image-1",
+            model=get_image_model(),
             image=("image.png", png_buffer, "image/png"),
             prompt=instructions,
             size=size,

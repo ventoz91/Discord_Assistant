@@ -6,6 +6,7 @@ import asyncio
 from io import BytesIO
 from funfunc.sandwich import make_random_sandwich
 from AIfunc.simulate import ConversationSimulator
+from chatbotfunc.model_settings import get_chat_model
 from AIfunc.responses import generate_image
 from chatbotfunc.utils import split_message
 
@@ -54,6 +55,7 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!dragonwilds_status  ·  /dragonwilds status", "Dragonwilds status"),
     ],
     "🎲  MISC": [
+        ("!model  ·  /model",        "See or switch the chat and image models"),
         ("!sandwich  ·  /sandwich",  "Random sandwich with an AI image"),
     ],
 }
@@ -129,7 +131,7 @@ class FunCog(commands.Cog):
         await self._simulate_impl(ctx, topic, personality_indices, turns)
 
     async def _simulate_impl(self, ctx, topic: str, personality_indices: list, turns: int = 4):
-        simulator = ConversationSimulator(os.getenv("MODEL_CHAT"))
+        simulator = ConversationSimulator(get_chat_model())
         first = True
         async for label, text in simulator.simulate_conversation(topic, personality_indices, turns):
             if label == "intro":
