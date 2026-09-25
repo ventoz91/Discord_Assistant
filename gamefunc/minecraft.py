@@ -111,11 +111,33 @@ class MinecraftServer:
         key = f'MINECRAFT_{server_type.upper()}_COMPOSE_DIR'
         return lambda: os.getenv(key, os.getenv('MINECRAFT_VANILLA_COMPOSE_DIR', '/home/data'))
 
+    def _proxy(self, server_type: str) -> DockerComposeGameServer | None:
+        """The Velocity proxy in front of the Docker servers — the only thing
+        publishing the player port (25565), so a backend started without it is
+        up (RCON answers, panel says online) but unjoinable. Same host/compose
+        dir as the backend. MINECRAFT_PROXY_SERVICE='' disables."""
+        service = os.getenv('MINECRAFT_PROXY_SERVICE', 'mc-proxy').strip()
+        if not service:
+            return None
+        return DockerComposeGameServer(
+            host=self._env_getter(server_type, 'SSH_HOST'),
+            user=self._env_getter(server_type, 'SSH_USER'),
+            compose_dir=self._compose_dir_getter(server_type),
+            service_name=service,
+        )
+
     async def start(self, server_type: str) -> bool:
         if server_type in self._compose:
             if not os.getenv(f'MINECRAFT_{server_type.upper()}_SSH_HOST', ''):
                 return False
-            return await self._compose[server_type].start()
+            if not await self._compose[server_type].start():
+                return False
+            # Bring the proxy up too. Its compose depends_on lists both backends
+            # as required, so this also starts the other Minecraft server. Left
+            # running on stop: it's harmless idle and the other backend may still
+            # need it.
+            proxy = self._proxy(server_type)
+            return await proxy.start() if proxy else True
         else:
             server_dir = self.server_dirs.get(server_type, '')
             if not server_dir:

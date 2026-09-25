@@ -85,6 +85,7 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `MINECRAFT_VANILLA_SSH_HOST` — remote host for vanilla start via SSH+Docker (required for start to work)
 - `MINECRAFT_VANILLA_SSH_USER` — optional SSH username; defaults to current user
 - `MINECRAFT_VANILLA_COMPOSE_DIR` — path to docker-compose on remote host (default: `/home/data`)
+- `MINECRAFT_PROXY_SERVICE` — compose service of the Velocity proxy in front of vanilla/creative (default: `mc-proxy`). The proxy is the only thing publishing the player port, so `MinecraftServer.start()` brings it up after the backend (its `depends_on` also starts the other backend). RCON-based "online" status bypasses the proxy, so a down proxy isn't visible there. Empty disables.
 - `MINECRAFT_MODDED_DIR` / `MINECRAFT_MODDED_RCON_HOST` / `MINECRAFT_MODDED_RCON_PORT` / `MINECRAFT_MODDED_RCON_PASSWORD`
 - `MINECRAFT_CREATIVE_SSH_HOST` — remote host for creative server event watcher via SSH+Docker
 - `MINECRAFT_CREATIVE_SSH_USER` — optional SSH username for creative server
@@ -205,7 +206,7 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 - **`gamefunc/adventure.py`** — `AdventureGame`: 55×23 grid dungeon, 8-dir movement, viewport renderer (33×15). Win: pick up the Golden Crown.
 - **`gamefunc/adventure_panel.py`** — `AdventureView`: 3×3 D-pad, Pick Up / Inventory / Look / Quit. Direction buttons disable at walls. Embed refreshes in place.
 - **`gamefunc/snake_panel.py`** — `SnakeView`: D-pad buttons, score tracking, embed-in-place.
-- **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread). `MinecraftServer` handles vanilla/creative (SSH+Docker via `DockerComposeGameServer`, one instance per type built in `__init__` from `MINECRAFT_{TYPE}_*` env vars) and modded (local `kitty` launch). `pull_and_redeploy(server_type)` — vanilla/creative only.
+- **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread). `MinecraftServer` handles vanilla/creative (SSH+Docker via `DockerComposeGameServer`, one instance per type built in `__init__` from `MINECRAFT_{TYPE}_*` env vars) and modded (local `kitty` launch). `pull_and_redeploy(server_type)` — vanilla/creative only. `start()` also starts the proxy (`MINECRAFT_PROXY_SERVICE`); `stop()` (RCON `stop`) leaves it running.
 - **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed, button enable/disable rules. Vanilla/modded only (creative isn't exposed here — see webpanel's dashboard instead).
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only — see README Known Limitations: these raise `AttributeError` when the bot runs in its Linux container, which it does today).
 - **`gamefunc/emucoach.py`** — `EmucoachServer`: starts/stops the EmuCoach WoW repack on a Windows VM over SSH. Spawns processes via WMI (`Win32_Process Create`, PowerShell `-EncodedCommand`) so they detach from the SSH session and survive disconnect. Start order: database → wait → authserver → worldserver, each skipped if its process already runs. Stop force-kills world/auth then mysqld. Status reports each component from the remote process list.
