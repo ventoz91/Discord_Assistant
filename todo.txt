@@ -45,6 +45,12 @@ RAG context caps (2026-09-25) — RAG_MESSAGE_CONTEXT=20, MAX_CONTEXT_TOKENS=600
 Minecraft start brings up the Velocity proxy; proxy online status in Discord panel + web dashboard
 web panel login lockout — 5 failed attempts per IP per 15 min
 reminders (!remind) and daily automated posts (The Morning Paper)
+/model — switch chat + image models from Discord (curated, verified list; bot-wide, persisted)
+/usage — per-call token/cost tracking by feature and model (data/usage.json)
+modded Minecraft moved to the desktop PC as a systemd user service (SSH + scoped gate)
+removed Valheim/Enshrouded (Windows-only, never worked from the Docker container)
+Dragonwilds on the web dashboard; fix crash on whitespace-only replies
+scripts/prod-env.sh — safe edits to the deployed .env (backup, masking, recreate)
 
 --- TODO ---
 
@@ -61,8 +67,6 @@ autonomous agent mode — /agent <goal>: Ralph takes a multi-step goal and runs 
 /adventure level 2 — health system, enemies per room, combat buttons (Attack/Flee),
   loot drops, death/game-over state; builds on existing AdventureGame/AdventureView
   (gamefunc/adventure.py + gamefunc/adventure_panel.py)
-in-Discord model switching — !model / /model command to swap bot.model_chat live; list available
-  local (Ollama) and cloud (OpenAI) models; store as shared bot state
 message threading — post long responses or generated images as Discord thread replies to keep
   channels clean and group conversation naturally
 !tldr <url> — user pastes a URL, bot fetches and summarizes in character; thin layer on top of

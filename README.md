@@ -13,7 +13,7 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **The Morning Paper** — an optional daily in-character recap posted to configured channels, summarizing the last 24 hours; skips quiet days
 - **`!missed` / `/missed`** — catch-up summary of everything that happened in a channel since you last spoke there
 - **Reminders** — `!remind <duration> <text>` (compounds like `1h30m`) delivers an in-character reminder later; `!reminders` lists pending ones, `!unremind <id>` cancels one
-- **Image generation** — gpt-image-1 via `!generate` / `/generate`, or naturally in conversation ("draw me a crab")
+- **Image generation** — gpt-image models (switchable with `/model`) via `!generate` / `/generate`, or naturally in conversation ("draw me a crab")
 - **Image transformation** — AI image editing via `!transform` / `/transform`, or naturally in conversation ("make it blue"); transforms chain — each uses the previous result, not the original
 - **Image/video/sticker analysis** — describes images, short videos (sampled across `VIDEO_FRAMES` frames), stickers, and lone custom emoji shared in chat; search and describe via `!image` / `/image`
 - **Web search** — Tavily-backed tool calling; the bot searches automatically when a question needs current info and incorporates results into its in-character response
@@ -21,15 +21,16 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Personality system** — short character descriptors stored in `data/personalities.json`; switch at runtime, pin per-channel, persist across restarts
 - **Conversation simulation** — simulate a debate between two personalities on any topic via `!simulate` / `/simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) — all panel-based
-- **Game server management** — Minecraft (vanilla + creative via SSH+Docker behind a Velocity proxy, modded via local process launch), Satisfactory, Palworld, RuneScape: Dragonwilds, Valheim, Enshrouded, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; SSH access uses a dedicated, command-restricted key (see [Scoped SSH access](#scoped-ssh-access)); `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
+- **Game server management** — Minecraft (vanilla + creative via SSH+Docker behind a Velocity proxy; modded as a systemd service on a desktop PC), Satisfactory, Palworld, RuneScape: Dragonwilds, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; SSH access uses a dedicated, command-restricted key (see [Scoped SSH access](#scoped-ssh-access)); `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
 - **Web admin panel** (`webpanel/`) — browser dashboard for every server above: live status, start/stop, and pull-and-redeploy, plus a "Deploy new server" flow that spins up additional game servers from templates (or a custom Docker image) on a configured host. Runs inside the same process as the bot (see [Running](#running)) so it shares `gamefunc/` control code and can post panel actions to the same Discord channels the bot's own event watchers use. Session-login protected with a brute-force lockout — see [Web Panel](#web-panel) below
+- **Model switching** — `/model` shows the current chat and image models with a dropdown for each; anyone can switch between curated, verified models and the change applies bot-wide immediately
+- **Cost tracking** — every OpenAI call's token usage is recorded per feature and model; `/usage` shows estimated spend for today, 7 and 30 days
 - **Bot self-restart** — an owner (`BOT_OWNER_IDS`) can ask the bot in chat to restart itself; it re-execs in place, picking up any code changes since the last start
 - **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
 
 ## Requirements
 
 - Python 3.10+
-- kitty terminal — required on Linux for **modded** Minecraft server start (launches the server process in a new terminal window); not needed for vanilla/creative (SSH+Docker) or any other feature. **This only works on a Linux desktop with a display** — it will not work in a headless environment, including the project's own Docker deployment (see [Known Limitations](#known-limitations))
 
 ```bash
 python -m venv .venv
@@ -65,6 +66,14 @@ OPENAI_API_KEY=your_openai_api_key
 
 # Model used for chat completions
 MODEL_CHAT=gpt-6-sol
+
+# Image model for generate/transform (default: gpt-image-1). /model in Discord can
+# override this and MODEL_CHAT at runtime (stored in data/model_settings.json);
+# picking "Default" there falls back to these .env values.
+IMAGE_MODEL=gpt-image-1
+
+# Days of per-feature usage/cost history kept in data/usage.json for /usage.
+USAGE_RETENTION_DAYS=90
 
 # Reasoning effort sent on every chat call (default: none). GPT-6 models reject
 # function tools on Chat Completions unless this is "none". Set to "off" to omit
@@ -283,8 +292,12 @@ MINECRAFT_VANILLA_RCON_PORT=25575
 MINECRAFT_VANILLA_RCON_PASSWORD=your_rcon_password
 MINECRAFT_VANILLA_CONNECT_URL=play.example.com   # shown as "Connect: ..." in the panel (free text)
 
-MINECRAFT_MODDED_DIR=/home/user/minecraft/modded   # local path for kitty launch — see Requirements
-MINECRAFT_MODDED_RCON_HOST=localhost
+# Modded runs as a systemd *user* service on a desktop PC (the Docker host can't run it
+# well) — see "Scoped SSH access" for the one-time PC setup.
+MINECRAFT_MODDED_SSH_HOST=192.168.0.x        # the PC; start = `systemctl --user start` over SSH
+MINECRAFT_MODDED_SSH_USER=trevor
+MINECRAFT_MODDED_SERVICE=minecraft-modded    # systemd user unit name (default)
+MINECRAFT_MODDED_RCON_HOST=192.168.0.x       # same PC — status/stop go over RCON
 MINECRAFT_MODDED_RCON_PORT=25575
 MINECRAFT_MODDED_RCON_PASSWORD=your_rcon_password
 MINECRAFT_MODDED_CONNECT_URL=modded.example.com  # shown as "Connect: ..." in the panel (free text)
@@ -384,19 +397,6 @@ DEPLOY_TARGET_USER=admin
 
 
 # ─────────────────────────────────────────────
-# Valheim & Enshrouded (Windows only)
-# ─────────────────────────────────────────────
-
-VALHEIM_SERVER_NAME=MyValheimServer
-VALHEIM_WORLD_NAME=MyWorld
-VALHEIM_PASSWORD=your_password
-VALHEIM_PORT=2456
-VALHEIM_STEAM_DIR=I:\SteamLibrary
-
-ENSHROUDED_EXE=I:\SteamCMD\steamapps\common\enshrouded_server\enshrouded_server.exe
-
-
-# ─────────────────────────────────────────────
 # EmuCoach WoW repack (Windows 11 VM, via SSH)
 # ─────────────────────────────────────────────
 
@@ -479,7 +479,7 @@ docker compose up --build -d
 
 **Deploying to another server:** copy the project folder, recreate `.env` (it is gitignored), and run `docker compose up --build`. The `./data` volume path is relative so no compose edits are needed.
 
-**`.env` changes in Docker:** values reach the container only when it is *created*, so run `docker compose up -d` after editing `.env` — `docker compose restart` keeps the old values. (Running locally, most values are re-read on every call.)
+**`.env` changes in Docker:** values reach the container only when it is *created*, so run `docker compose up -d` after editing `.env` — `docker compose restart` keeps the old values. (Running locally, most values are re-read on every call.) From a dev machine, `scripts/prod-env.sh show|set|unset KEY[=VALUE]` does the edit (with a timestamped backup and secret masking) and the recreate in one step over SSH.
 
 **Updating a running deployment** (pull latest code and pick up any `.env` changes):
 
@@ -527,6 +527,22 @@ Refused commands are logged to syslog under `bot-ssh-gate` (`journalctl -t bot-s
 from="<bot-host-ip>" ssh-ed25519 AAAA... discord-bot
 ```
 
+**3b. On a desktop PC hosting a systemd-user game server** (modded Minecraft): install the unit and the systemd gate as that user — no sudo needed:
+
+```bash
+cp deploy/minecraft-modded.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+install -m 755 deploy/bot-ssh-gate-systemd.sh ~/.local/bin/bot-ssh-gate-systemd
+loginctl enable-linger "$USER"   # lets the unit run while logged out
+```
+
+`~/.ssh/authorized_keys` line (units to allow go after the gate path):
+
+```
+restrict,from="<bot-host-ip>",command="/home/<user>/.local/bin/bot-ssh-gate-systemd minecraft-modded" ssh-ed25519 AAAA... discord-bot
+```
+
+Add the PC's host key to the bot's `ssh/known_hosts`, and let the bot host reach the PC on 22 (SSH) and the RCON port through the PC's firewall. Server console: `journalctl --user -u minecraft-modded -f`.
+
 **4. Switch over:** `docker compose up --build -d`, then exercise start/stop/status for each server and a web-panel deploy/delete. Check `journalctl -t bot-ssh-gate` on the game host for any `DENIED` lines.
 
 ## Testing
@@ -538,7 +554,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), the `REASONING_EFFORT` wrapper, reminders, profile and debate extraction (structured-output parsing), Morning Paper scheduling, Minecraft start/proxy handling, the web panel (auth + login lockout, dashboard, deploy flow, store, templates), and the SSH gate script (allowed command shapes generated from the real `DockerComposeGameServer`, plus injection/traversal attempts).
+Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), the `REASONING_EFFORT` wrapper, reminders, profile and debate extraction (structured-output parsing), Morning Paper scheduling, Minecraft start/proxy handling and modded-via-systemd, model switching (`/model` overrides and picker), usage/cost recording, the blank-reply guard, the web panel (auth + login lockout, dashboard, deploy flow, store, templates), and both SSH gate scripts (allowed command shapes generated from the real `DockerComposeGameServer` / `RemoteUserService`, plus injection/traversal attempts).
 
 ## Commands
 
@@ -582,7 +598,7 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 
 | Prefix | Slash | Description |
 |---|---|---|
-| `!generate <prompt>` | `/generate` | Generate an image with gpt-image-1 |
+| `!generate <prompt>` | `/generate` | Generate an image (current image model — see `/model`) |
 | `!transform <instructions>` | `/transform` | Transform an attached image |
 | `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel |
 | `!image <query>` | `/image` | Search Google Images and describe the result |
@@ -603,11 +619,6 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | `!status` | `/status` | Live status embed for all configured game servers |
 | `!minecraft` | `/minecraft` | Open the Minecraft server panel (vanilla/modded status, player counts, proxy status) |
 | `!satisfactory` | `/satisfactory` | Open the Satisfactory server panel |
-| `!start_valheim` | `/valheim start` | Start the Valheim dedicated server |
-| `!stop_valheim` | `/valheim stop` | Stop the Valheim dedicated server |
-| `!valheim_status` | `/valheim status` | Check Valheim server status |
-| `!start_enshrouded` | `/enshrouded start` | Start the Enshrouded dedicated server |
-| `!stop_enshrouded` | `/enshrouded stop` | Stop the Enshrouded dedicated server |
 | `!start_emucoach` | `/emucoach start` | Start the EmuCoach WoW server (database → auth → world) |
 | `!stop_emucoach` | `/emucoach stop` | Stop the EmuCoach WoW server |
 | `!emucoach_status` | `/emucoach status` | Check EmuCoach WoW server status |
@@ -621,6 +632,8 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | Prefix | Slash | Description |
 |---|---|---|
 | `!commands` / `!help` | `/commands` / `/help` | Show all bot commands with descriptions |
+| `!model` | `/model` | See or switch the chat and image models (dropdowns; applies bot-wide) |
+| `!usage` | `/usage` | Estimated OpenAI spend: today, 7 and 30 days, by feature and model |
 | `!sandwich` | `/sandwich` | Generate a random sandwich with an AI image |
 
 ## Architecture
@@ -638,11 +651,12 @@ cogs/
   images.py                   — generate, transform, image commands
   personality.py              — prefix + slash personality commands
   games.py                    — game, snake, adventure commands
-  servers.py                  — minecraft, satisfactory, valheim, enshrouded, emucoach,
+  servers.py                  — minecraft, satisfactory, emucoach,
                                 dragonwilds server commands; posts/refreshes the persistent
                                 Dragonwilds panel on_ready
   reminders.py                 — remind, reminders, unremind commands
   fun.py                      — commands/help (formatted text list), simulate, sandwich
+  models.py                    — /model (model picker dropdowns) and /usage (spend summary)
   rag.py                      — learn, memory, missed, summarize, cleardocs, clearall,
                                 whoami, forget
 AIfunc/
@@ -670,6 +684,10 @@ chatbotfunc/
                                 reminder_loop(); state in data/reminders.json (gitignored)
   morning_paper.py             — morning_paper_loop(): daily in-character recap per
                                 channel; state in data/morning_paper_state.json (gitignored)
+  model_settings.py            — curated chat/image model lists; runtime overrides in
+                                data/model_settings.json win over MODEL_CHAT / IMAGE_MODEL
+  usage.py                     — per-call token/cost recording (price table) into
+                                data/usage.json; summarize() for /usage
 ragfunc/
   memory.py                   — ChannelMemory (ChromaDB singleton client); store_message
                                 (context_snippet support), store_document, retrieve
@@ -680,8 +698,9 @@ gamefunc/
   snake.py / snake_panel.py    — Snake game, D-pad buttons, score tracking
   tictactoe.py                — Tic-Tac-Toe logic
   minecraft.py / minecraft_panel.py  — thread-safe RCON; vanilla/creative start via
-                                SSH+Docker (also starts the Velocity proxy), modded via
-                                local kitty; live status panel incl. proxy state
+                                SSH+Docker (also starts the Velocity proxy), modded via a
+                                systemd user service on the desktop PC; live status panel
+                                incl. proxy state
   minecraft_events.py          — SSH + `docker logs -f` event watcher per server
                                 (vanilla/creative); idles while offline/disabled
   satisfactory.py             — SSH+Docker start/stop; HTTPS API state (players, tier,
@@ -692,7 +711,8 @@ gamefunc/
                                 SSH; processes spawned detached via WMI (Win32_Process Create)
   status_panel.py             — read-only all-servers status embed; parallel queries;
                                 configurable via STATUS_SERVERS env var
-  valheim.py                  — ValheimServer, EnshroudedServer (Windows-only)
+  user_service.py             — RemoteUserService: `systemctl --user start|stop|is-active`
+                                over SSH, for game servers hosted on a desktop PC
   compose_server.py           — DockerComposeGameServer: shared SSH+docker-compose
                                 start/stop/pull_and_redeploy/is_running, used by Satisfactory,
                                 Palworld, Minecraft vanilla/creative, and webpanel deploys
@@ -717,8 +737,14 @@ funfunc/
   web_search.py               — Tavily web search (AI google_search tool)
   sandwich.py                 — random sandwich generator
 deploy/
-  bot-ssh-gate.sh              — authorized_keys forced command for game hosts; only runs the
-                                exact remote commands the bot sends (see Scoped SSH access)
+  bot-ssh-gate.sh              — authorized_keys forced command for Docker game hosts; only runs
+                                the exact remote commands the bot sends (see Scoped SSH access)
+  bot-ssh-gate-systemd.sh      — same idea for the desktop PC: only systemctl --user
+                                start/stop/is-active on listed units
+  minecraft-modded.service     — systemd user unit for the PC-hosted modded server
+scripts/
+  prod-env.sh                  — show/set/unset keys in the deployed .env (backup, secret
+                                masking, container recreate)
 tests/                         — pytest + pytest-asyncio; pure-logic coverage, no live services
 ssh/                           — bot-only SSH key + known_hosts, mounted into the container
                                 (gitignored; see Scoped SSH access)
@@ -728,6 +754,8 @@ data/                         — runtime artifacts (gitignored in full)
   channel_personalities.json  — per-channel personality pin map
   user_profiles.json          — per-user extracted fact profiles
   debates.json                 — tracked debates/running jokes per channel
+  model_settings.json          — /model overrides for the chat and image model
+  usage.json                   — per-day token/cost totals by feature and model
   reminders.json               — pending reminders
   morning_paper_state.json     — last-posted-date per channel, prevents double posting
   summarizer_state.json       — last-summary timestamps per channel
@@ -803,7 +831,7 @@ A browser dashboard (`webpanel/`) for everything in [Game Servers](#game-servers
 3. The panel listens on `WEBPANEL_PORT` (default `8000`) inside the container. Five failed logins from one IP within 15 minutes lock that IP out until the oldest failure ages out (in-memory; behind a reverse proxy all requests share the proxy's IP, which is fine for a single admin). Reverse-proxy it behind your own auth/TLS layer — do **not** expose it directly to the internet unauthenticated. This panel can reach every configured host over SSH and Windows VM over WMI, so treat it as sensitive as SSH access itself; an IP allowlist at the reverse proxy (in addition to the login) is a reasonable extra layer given the blast radius.
 4. Optionally set `WEBPANEL_URL` so `/panel` in Discord can post the link.
 
-**Dashboard:** live status + Start/Stop/Redeploy for Minecraft vanilla/creative (rows also show the Velocity proxy's online state), Satisfactory, Palworld, Valheim, Enshrouded, and EmuCoach — wrapping the same `gamefunc/` classes the Discord commands use, so state is always consistent between the two surfaces. Rows auto-refresh every 15s via htmx polling, no page reload.
+**Dashboard:** live status + Start/Stop/Redeploy for Minecraft vanilla/creative (rows also show the Velocity proxy's online state) and modded (no redeploy — PC-hosted), Satisfactory, Palworld, RuneScape: Dragonwilds (no redeploy — built image that updates on start), and EmuCoach — wrapping the same `gamefunc/` classes the Discord commands use, so state is always consistent between the two surfaces. Rows auto-refresh every 15s via htmx polling, no page reload.
 
 **Deploy new server:** `/deploy` offers a small catalog of curated templates (see `webpanel/templates_catalog.py`) plus a "custom image" template for anything not curated. Deploying:
 1. Validates the instance name and checks the requested port(s) aren't already bound on `DEPLOY_TARGET_HOST` (a live `ss -tuln` check over SSH).
@@ -818,9 +846,8 @@ Deployed instances then appear on the dashboard like any fixed server (start/sto
 
 ## Known Limitations
 
-- **Modded Minecraft requires a Linux desktop** — its start command spawns a local `kitty` terminal window, which doesn't exist in a headless environment. This includes the project's own Docker deployment: modded start/stop will not work there regardless of `MINECRAFT_MODDED_*` addressing. Vanilla and creative (SSH+Docker) are unaffected. RCON-based status/stop can still work if `MINECRAFT_MODDED_RCON_HOST` points at wherever the server actually runs and is network-reachable from the bot.
+- **Modded Minecraft needs the PC on** — it runs on the desktop PC, not the Docker host, so start fails (with a clear message) while that PC is off or asleep. Players connect to it directly, not through the Velocity proxy — Fabric servers need extra mods to sit behind Velocity.
 - **EmuCoach requires OpenSSH Server on the target Windows VM**, set up in advance with key auth for the bot's SSH user (see the `.env` section above for the admin-group nuance). Nothing in the bot can install or configure this remotely.
-- **Valheim / Enshrouded commands are Windows-only** (use `.bat` files and `CREATE_NEW_CONSOLE`, a Windows-only `subprocess` flag). They will raise `AttributeError` when the bot runs in its Linux Docker container — which it does today — so these two servers currently cannot be started/stopped/checked from either Discord or the web panel. The web panel surfaces this with a clear message rather than a 500, but doesn't fix it; the underlying commands would need reworking onto an SSH-based path (like EmuCoach already uses) to work from Linux.
 - **Image transform state** — `!transform last` and AI-triggered transforms require at least one `!generate` or `!transform` in the current session. Image bytes live in memory and are lost on restart.
 - **Scanned PDFs** — `!learn` and file auto-storage extract text via `pypdf`. Image-only/scanned PDFs produce no usable text.
 - **Token estimate** — `MAX_CONTEXT_TOKENS` trimming uses a chars÷4 approximation. Give yourself headroom when setting the cap.
