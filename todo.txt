@@ -79,7 +79,11 @@ Ollama support for chat completions — swap OpenAI client base_url to localhost
   Ollama is OpenAI-compatible so changes are minimal; keep OpenAI for image gen/analysis
 per-channel model config — some channels use local model (cheap), others use cloud (quality)
 
---- TOMORROW: OLLAMA REMOTE SESSION ---
+--- PARKED: OLLAMA (revisit every so often) ---
+Status 2026-09-25: parked, not abandoned. At gpt-6-luna prices ($0.10/$0.50 per 1M tokens) a 7-8B
+model on the GTX 1070 doesn't pay for itself yet. Revisit if: better hardware lands, small local
+models close the quality gap for in-character chat, or API costs climb.
+
 Goal: run Ollama on the server, point Ralph at it for chat, keep OpenAI for images
 Server: 2x Xeon E5-2667 v2 (32 threads), ~100GB DDR3, GTX 1070 8GB (GPU passthrough confirmed)
 
