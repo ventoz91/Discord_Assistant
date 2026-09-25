@@ -47,7 +47,7 @@ env_path = os.path.join(directory, ".env")
 SECRET = re.compile(r"KEY|TOKEN|SECRET|PASSWORD|HASH|PASS\b")
 
 def mask(key, value):
-    return "********" if SECRET.search(key) and value else value
+    return "********" if SECRET.search(key) and value and value != "<unset>" else value
 
 def read_lines():
     with open(env_path) as f:
