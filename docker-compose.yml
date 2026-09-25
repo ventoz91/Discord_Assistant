@@ -11,7 +11,7 @@ services:
       # Persistent bot state: ChromaDB, profiles, debates, logs, deployed-server
       # metadata, etc.
       - ./data:/app/data
-      # SSH keys for Minecraft/Satisfactory/Palworld/deploy-target server management
-      - ~/.ssh:/root/.ssh:ro
-    # known_hosts must exist or SSH will prompt interactively — pre-populate it
-    # by running: ssh-keyscan <your-server-host> >> ~/.ssh/known_hosts
+      # Bot-only SSH key + known_hosts for game server management — NOT your
+      # personal ~/.ssh. Scoped per host by deploy/bot-ssh-gate.sh; see README
+      # "Scoped SSH access" for setup.
+      - ./ssh:/root/.ssh:ro

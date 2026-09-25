@@ -1,6 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
+import webpanel.auth as auth
 import webpanel.routes_servers as rs
 from webpanel.app import create_app
 from webpanel.auth import hash_password
@@ -9,6 +10,7 @@ from webpanel.auth import hash_password
 @pytest.fixture
 def client(monkeypatch, tmp_path):
     monkeypatch.setenv("WEBPANEL_SECRET_KEY", "test-secret-key")
+    auth._failed_logins.clear()
     monkeypatch.setenv("WEBPANEL_USERNAME", "trevor")
     monkeypatch.setenv("WEBPANEL_PASSWORD_HASH", hash_password("hunter2"))
     # Dashboard status checks would otherwise attempt real SSH/RCON/network
@@ -35,6 +37,32 @@ def test_login_page_loads(client):
 def test_wrong_password_rejected(client):
     resp = client.post("/login", data={"username": "trevor", "password": "wrong"})
     assert resp.status_code == 401
+
+
+def test_repeated_failures_lock_out_even_correct_password(client):
+    for _ in range(auth._MAX_FAILED_LOGINS):
+        assert client.post("/login", data={"username": "trevor", "password": "wrong"}).status_code == 401
+    resp = client.post("/login", data={"username": "trevor", "password": "hunter2"}, follow_redirects=False)
+    assert resp.status_code == 429
+    assert "Too many failed attempts" in resp.text
+
+
+def test_lockout_expires_after_window(client, monkeypatch):
+    for _ in range(auth._MAX_FAILED_LOGINS):
+        client.post("/login", data={"username": "trevor", "password": "wrong"})
+    real_time = auth.time.time
+    monkeypatch.setattr(auth.time, "time", lambda: real_time() + auth._FAILED_LOGIN_WINDOW + 1)
+    resp = client.post("/login", data={"username": "trevor", "password": "hunter2"}, follow_redirects=False)
+    assert resp.status_code == 303
+
+
+def test_success_clears_failure_count(client):
+    for _ in range(auth._MAX_FAILED_LOGINS - 1):
+        client.post("/login", data={"username": "trevor", "password": "wrong"})
+    client.post("/login", data={"username": "trevor", "password": "hunter2"})
+    client.get("/logout")
+    for _ in range(auth._MAX_FAILED_LOGINS - 1):
+        assert client.post("/login", data={"username": "trevor", "password": "wrong"}).status_code == 401
 
 
 def test_correct_login_reaches_dashboard(client):

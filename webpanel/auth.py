@@ -8,6 +8,7 @@ import base64
 import hashlib
 import os
 import secrets
+import time
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -18,6 +19,25 @@ templates = Jinja2Templates(directory="webpanel/templates")
 
 _SESSION_KEY = "webpanel_authed"
 _SCRYPT_PARAMS = {"n": 2 ** 14, "r": 8, "p": 1, "dklen": 32}
+
+# Brute-force throttle: this many failed logins from one client IP within the
+# window locks that IP out until the oldest failure ages out. In-memory only
+# (resets on restart), which is fine for a single-admin LAN panel. Requests via
+# SWAG all share its IP, so a lockout there blocks every proxied login — also
+# fine with one admin, and direct LAN access on :8000 still works.
+_MAX_FAILED_LOGINS = 5
+_FAILED_LOGIN_WINDOW = 15 * 60
+_failed_logins: dict[str, list[float]] = {}
+
+
+def _recent_failures(ip: str) -> list[float]:
+    cutoff = time.time() - _FAILED_LOGIN_WINDOW
+    recent = [t for t in _failed_logins.get(ip, []) if t > cutoff]
+    if recent:
+        _failed_logins[ip] = recent
+    else:
+        _failed_logins.pop(ip, None)
+    return recent
 
 
 def hash_password(password: str) -> str:
@@ -59,14 +79,24 @@ async def login_form(request: Request):
 
 @router.post("/login")
 async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    ip = request.client.host if request.client else "unknown"
+    recent = _recent_failures(ip)
+    if len(recent) >= _MAX_FAILED_LOGINS:
+        minutes = max(1, round((recent[0] + _FAILED_LOGIN_WINDOW - time.time()) / 60))
+        return templates.TemplateResponse(
+            request, "login.html",
+            {"error": f"Too many failed attempts — try again in about {minutes} min."}, status_code=429,
+        )
     expected_user = os.getenv("WEBPANEL_USERNAME", "")
     expected_hash = os.getenv("WEBPANEL_PASSWORD_HASH", "")
     valid = bool(expected_user and expected_hash
                  and secrets.compare_digest(username, expected_user)
                  and verify_password(password, expected_hash))
     if valid:
+        _failed_logins.pop(ip, None)
         request.session[_SESSION_KEY] = True
         return RedirectResponse("/", status_code=303)
+    _failed_logins.setdefault(ip, []).append(time.time())
     return templates.TemplateResponse(
         request, "login.html", {"error": "Invalid username or password"}, status_code=401,
     )

@@ -1,6 +1,7 @@
 # Environment / secrets
 .env
 .env.*
+ssh/
 
 # Virtual environment
 .venv/

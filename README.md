@@ -429,13 +429,7 @@ python main.py
 
 Requires Docker and Docker Compose.
 
-**First time setup — add your game server hosts to known_hosts** (prevents SSH hanging on first connect):
-
-```bash
-ssh-keyscan <your-minecraft-host> >> ~/.ssh/known_hosts
-ssh-keyscan <your-satisfactory-host> >> ~/.ssh/known_hosts
-ssh-keyscan <your-emucoach-vm-host> >> ~/.ssh/known_hosts
-```
+**First time setup — give the bot its own scoped SSH key** (see "Scoped SSH access" below). The container mounts `./ssh` — a bot-only key and `known_hosts` — never your personal `~/.ssh`.
 
 A `docker-compose.yml` is included at the project root:
 
@@ -449,7 +443,7 @@ services:
       - "8000:8000"            # web admin panel — see "Web Panel" section
     volumes:
       - ./data:/app/data       # persistent state (ChromaDB, profiles, debates, reminders, logs, deployed-server metadata)
-      - ~/.ssh:/root/.ssh:ro   # SSH keys for game server management
+      - ./ssh:/root/.ssh:ro    # bot-only SSH key + known_hosts (gitignored, see "Scoped SSH access")
 ```
 
 **Build and run:**
@@ -758,3 +752,42 @@ Deployed instances then appear on the dashboard like any fixed server (start/sto
 - **Profile extraction latency** — user profiles are updated in the background after each response. A fact mentioned in message N is available starting from message N+1, not immediately.
 - **Summarizer/debate scanner first run** — these background loops start their first scan after their interval has elapsed, not immediately on startup.
 - **RAG memory is per-channel** — each Discord channel has its own isolated collection. `!clearall` only affects the current channel.
+
+### Scoped SSH access
+
+The bot SSHes into game hosts to run `docker compose` and friends. It gets a dedicated key that works only from the bot's host and — on Linux hosts — only for the exact commands it sends, enforced by `deploy/bot-ssh-gate.sh` as an `authorized_keys` forced command. A leaked key can start/stop/redeploy game servers and manage web-panel deployments; it cannot open a shell, read files, or reach any host that isn't listed here.
+
+Docker access is root-equivalent on a host regardless (a crafted compose file can mount `/`), so keep the key off hosts that don't run game servers.
+
+**1. On the bot host** (in the project directory):
+
+```bash
+mkdir -m 700 ssh
+ssh-keygen -t ed25519 -N '' -C discord-bot -f ssh/id_ed25519
+# Copy already-verified host keys rather than trusting a fresh scan:
+for h in <game-host-ip> <emucoach-vm-ip>; do ssh-keygen -F "$h" -f ~/.ssh/known_hosts | grep -v '^#'; done > ssh/known_hosts
+chmod 600 ssh/id_ed25519 ssh/known_hosts
+cat ssh/id_ed25519.pub
+```
+
+**2. On each Linux game host** (as the `*_SSH_USER`):
+
+```bash
+sudo install -m 755 bot-ssh-gate.sh /usr/local/bin/bot-ssh-gate   # copy deploy/bot-ssh-gate.sh over first
+```
+
+Then add one line to `~/.ssh/authorized_keys` — arguments are `DEPLOY_BASE_DIR` first, then every `*_COMPOSE_DIR` the bot uses on that host:
+
+```
+restrict,from="<bot-host-ip>",command="/usr/local/bin/bot-ssh-gate /home/data/gameservers/deployed /home/data" ssh-ed25519 AAAA... discord-bot
+```
+
+Refused commands are logged to syslog under `bot-ssh-gate` (`journalctl -t bot-ssh-gate`).
+
+**3. On the EmuCoach Windows VM:** the bot sends encoded PowerShell, which can't be allowlisted, so the key is restricted by source address only. Add to `C:\ProgramData\ssh\administrators_authorized_keys` (admin user) or the user's `authorized_keys`:
+
+```
+from="<bot-host-ip>" ssh-ed25519 AAAA... discord-bot
+```
+
+**4. Switch over:** `docker compose up --build -d`, then exercise start/stop/status for each server and a web-panel deploy/delete. Check `journalctl -t bot-ssh-gate` on the game host for any `DENIED` lines.
