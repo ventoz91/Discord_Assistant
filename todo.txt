@@ -35,6 +35,16 @@ Code audit cleanup — 13 issues resolved: blocking requests→aiohttp in encode
 remove !prompt / /prompt command — funfunc/prompt.py deleted; Tavily handles web lookups directly
 upgrade Snake to panel game — embed that edits in place with ⬆⬅⬇➡ buttons, score tracking,
   proper active_games cleanup; gamefunc/snake_panel.py (SnakeView); render uses ▣█◆· symbols
+scoped bot SSH access (2026-09-25) — container mounts a bot-only ./ssh key instead of the host's
+  ~/.ssh; deploy/bot-ssh-gate.sh forced command on GameDocker only runs the exact remote commands
+  the bot sends; key restricted from="10.13.37.100" everywhere (EmuCoach VM: source-restricted only)
+model refresh (2026-09-25) — chat on gpt-6-sol, background extraction/summaries on gpt-6-luna;
+  REASONING_EFFORT applied to every chat call (GPT-6 rejects tools on Chat Completions otherwise)
+strict structured outputs for profile + debate extraction — no more regex JSON parsing
+RAG context caps (2026-09-25) — RAG_MESSAGE_CONTEXT=20, MAX_CONTEXT_TOKENS=6000, set from measured usage
+Minecraft start brings up the Velocity proxy; proxy online status in Discord panel + web dashboard
+web panel login lockout — 5 failed attempts per IP per 15 min
+reminders (!remind) and daily automated posts (The Morning Paper)
 
 --- TODO ---
 
@@ -51,8 +61,6 @@ autonomous agent mode — /agent <goal>: Ralph takes a multi-step goal and runs 
 /adventure level 2 — health system, enemies per room, combat buttons (Attack/Flee),
   loot drops, death/game-over state; builds on existing AdventureGame/AdventureView
   (gamefunc/adventure.py + gamefunc/adventure_panel.py)
-scheduled messages and reminders — !remind <time> <message>, daily automated posts; store in JSON,
-  background asyncio task fires on startup and wakes to send
 in-Discord model switching — !model / /model command to swap bot.model_chat live; list available
   local (Ollama) and cloud (OpenAI) models; store as shared bot state
 message threading — post long responses or generated images as Discord thread replies to keep

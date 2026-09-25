@@ -11,7 +11,7 @@ python main.py
 
 ## Environment Configuration
 
-All configuration lives in **`.env`** at the project root. All values are read at call time (not module load), so changes take effect on the next request without restarting — with one exception: `OPENAI_API_KEY` is bound into an OpenAI client on first use (both the explicit `client` in `AIfunc/responses.py` and the SDK's own lazily-cached default client behind `chatbotfunc/utils.py`'s `async_chat_completion`), so rotating it requires a restart.
+All configuration lives in **`.env`** at the project root. All values are read at call time (not module load), so changes take effect on the next request without restarting — with one exception: `OPENAI_API_KEY` is bound into an OpenAI client on first use (both the explicit `client` in `AIfunc/responses.py` and the SDK's own lazily-cached default client behind `chatbotfunc/utils.py`'s `async_chat_completion`), so rotating it requires a restart. **In Docker** (the live deployment), `.env` reaches the container via `env_file` only when the container is *created* — any `.env` change needs `docker compose up -d` (not `docker compose restart`, which keeps the old values).
 
 **Core**
 - `DISCORD_TOKEN` — Discord bot token
@@ -37,18 +37,18 @@ All configuration lives in **`.env`** at the project root. All values are read a
 
 **RAG Memory**
 - `HISTORYLENGTH` — Recent Discord messages fetched directly per response (default: 30)
-- `RAG_MESSAGE_CONTEXT` — Older messages retrieved from ChromaDB per response (default: 50). Restricted to entries older than the history window.
+- `RAG_MESSAGE_CONTEXT` — Older messages retrieved from ChromaDB per response (default: 50; live: 20). Restricted to entries older than the history window. In practice the distance threshold drops most candidates (measured 2026-09-25 over 660 replies: median 0, p90 14).
 - `RAG_DOC_CONTEXT` — Document chunks retrieved per response (default: 5)
 - `MESSAGE_TTL_DAYS` — Days before a chat message is excluded from retrieval (default: 30). Documents never expire.
 - `DISTANCE_THRESHOLD` — Cosine distance cutoff for retrieval (default: 0.8). Results above this are dropped.
 - `RAG_DECAY_HALFLIFE_DAYS` — Recency decay half-life for message scoring (default: 14). A message this many days old needs to be twice as similar to survive the threshold. Set to 0 to disable. Documents are never decayed.
-- `MAX_CONTEXT_TOKENS` — Optional hard token budget (chars÷4 estimate). Trims RAG messages from the tail, then docs, if exceeded. Unset by default.
+- `MAX_CONTEXT_TOKENS` — Optional hard token budget (chars÷4 estimate). Trims RAG messages from the tail, then docs, if exceeded; history is never trimmed. Unset by default (live: 6000 — measured median ~2.9k, p90 ~6.4k, max ~15.5k).
 
 **User Profiles**
 - `USER_PROFILE_EXTRACTION` — `true` / `false` (default: `true`). Profiles stored in `data/user_profiles.json` (gitignored).
 - `USER_PROFILE_MAX_FACTS` — Max facts stored per user (default: 20). Oldest dropped at cap.
 - `USER_PROFILE_INJECT_MAX` — Max facts injected per call (default: 10). Most recent preferred.
-- `USER_PROFILE_MODEL` — Model for extraction (default: `MODEL_CHAT`). A cheaper model works fine.
+- `USER_PROFILE_MODEL` — Model for extraction (default: `MODEL_CHAT`; live: `gpt-6-luna`, verified equal quality to gpt-6-sol on real prompts). Runs after every reply, so this is the biggest background cost.
 - `USER_PROFILE_EXTRACT_TOKENS` — Max tokens for the extraction response (default: 200).
 - `USER_PROFILE_MSG_CHARS` — Max chars of user/bot message fed to extraction (default: 500).
 
@@ -61,7 +61,7 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `DEBATE_MAX_PER_CHANNEL` — Cap on tracked entries per channel; oldest resolved (then oldest unresolved) dropped first (default: 15).
 - `DEBATE_INJECT_MAX` — Max entries injected into the system prompt per call (default: 3).
 - `DEBATE_SURFACE_COOLDOWN_DAYS` — Minimum days between surfacing the same entry, so Ralph doesn't repeat callbacks (default: 3).
-- `DEBATE_MODEL` — Model for extraction (default: `MODEL_CHAT`).
+- `DEBATE_MODEL` — Model for extraction (default: `MODEL_CHAT`; live: `gpt-6-luna`).
 
 **Auto-Summarization**
 - `SUMMARY_ENABLED` — `true` / `false` (default: `true`)
@@ -69,7 +69,7 @@ All configuration lives in **`.env`** at the project root. All values are read a
 - `SUMMARY_MIN_NEW_MESSAGES` — Minimum expiring messages to trigger summarization (default: 10). Below this, skip unless forced.
 - `SUMMARY_FORCE_AFTER_DAYS` — Force a summary after this many days without one, regardless of count (default: 5).
 - `SUMMARY_DAYS_BEFORE_EXPIRY` — Summarize messages this many days before their TTL (default: 5).
-- `SUMMARY_MODEL` — Model for summarization (default: `MODEL_CHAT`).
+- `SUMMARY_MODEL` — Model for summarization (default: `MODEL_CHAT`; live: `gpt-6-luna`).
 - `SUMMARY_MAX_TOKENS` — Max tokens in summary output (default: 500).
 - `SUMMARY_MAX_INPUT_CHARS` — Max chars of chat fed to summarizer (default: 12000).
 
@@ -163,9 +163,9 @@ Per-channel ChromaDB collections in `data/chroma/`. Singleton client (`_get_clie
 
 ## Architecture Overview
 
-`main.py`: initialises `bridge.Bot`, sets shared state, calls `bot.load_extension()` for all cogs, then runs the bot and the `webpanel/` FastAPI app concurrently in one asyncio loop (`asyncio.gather(bot.start(token), uvicorn.Server(...).serve())`, inside `async with bot:` — the same pattern `bot.run()` uses internally) instead of the older single blocking `bot.run(token)`. The web panel needs no separate process/deployment: it shares `.env`, the mounted SSH keys, and can post to Discord via `app.state.bot`.
+`main.py`: initialises `bridge.Bot`, sets shared state, calls `bot.load_extension()` for all cogs, then runs the bot and the `webpanel/` FastAPI app concurrently in one asyncio loop (`asyncio.gather(bot.start(token), uvicorn.Server(...).serve())`, inside `async with bot:` — the same pattern `bot.run()` uses internally) instead of the older single blocking `bot.run(token)`. The web panel needs no separate process/deployment: it shares `.env`, the bot's scoped SSH key (`./ssh`), and can post to Discord via `app.state.bot`.
 
-**Tests:** `tests/` (pytest + pytest-asyncio, `asyncio_mode = auto`). Pure-logic coverage of history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), reminders, profiles, morning-paper scheduling, and the web panel (`DockerComposeGameServer`, `webpanel/store.py`, `webpanel/auth.py`, template rendering/validation regexes, and full request/response flows via FastAPI's `TestClient` with all SSH/network calls monkeypatched) — no Discord/network/Chroma/SSH needed. Run with `python -m pytest -q`. Dev deps in `requirements-dev.txt`; runtime deps in `requirements.txt` are fully pinned.
+**Tests:** `tests/` (pytest + pytest-asyncio, `asyncio_mode = auto`). Pure-logic coverage of history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), the `REASONING_EFFORT` wrapper, reminders, profile and debate extraction (structured-output parsing, truncation handling), morning-paper scheduling, `MinecraftServer` start/proxy handling, the SSH gate (`tests/test_ssh_gate.py` runs `deploy/bot-ssh-gate.sh` with stubbed docker/ss against commands generated from the real `DockerComposeGameServer`, plus injection/traversal attempts), and the web panel (`DockerComposeGameServer`, `webpanel/store.py`, `webpanel/auth.py` incl. login lockout, template rendering/validation regexes, and full request/response flows via FastAPI's `TestClient` with all SSH/network calls monkeypatched) — no Discord/network/Chroma/SSH needed. Run with `python -m pytest -q`. Dev deps in `requirements-dev.txt`; runtime deps in `requirements.txt` are fully pinned.
 
 **Startup idempotency:** `on_ready` re-fires on gateway re-identify; `ChatCog._background_started` guards the background loops (summarizer, debate scanner, morning paper) and the watcher/monitor `start()` methods also self-guard, so reconnects never duplicate tasks.
 
@@ -207,7 +207,7 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 - **`gamefunc/adventure_panel.py`** — `AdventureView`: 3×3 D-pad, Pick Up / Inventory / Look / Quit. Direction buttons disable at walls. Embed refreshes in place.
 - **`gamefunc/snake_panel.py`** — `SnakeView`: D-pad buttons, score tracking, embed-in-place.
 - **`gamefunc/minecraft.py`** — Thread-safe async RCON using `socket.settimeout()` (avoids `signal.alarm()` crash outside main thread). `MinecraftServer` handles vanilla/creative (SSH+Docker via `DockerComposeGameServer`, one instance per type built in `__init__` from `MINECRAFT_{TYPE}_*` env vars) and modded (local `kitty` launch). `pull_and_redeploy(server_type)` — vanilla/creative only. `start()` also starts the proxy (`MINECRAFT_PROXY_SERVICE`); `stop()` (RCON `stop`) leaves it running.
-- **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed, button enable/disable rules. Vanilla/modded only (creative isn't exposed here — see webpanel's dashboard instead).
+- **`gamefunc/minecraft_panel.py`** — `MinecraftPanel`: live status embed (plus a Proxy field from `MinecraftServer.proxy_running()`, since RCON status bypasses the proxy), button enable/disable rules. Vanilla/modded only (creative isn't exposed here — see webpanel's dashboard instead).
 - **`gamefunc/valheim.py`** — `ValheimServer`, `EnshroudedServer` (Windows-only — see README Known Limitations: these raise `AttributeError` when the bot runs in its Linux container, which it does today).
 - **`gamefunc/emucoach.py`** — `EmucoachServer`: starts/stops the EmuCoach WoW repack on a Windows VM over SSH. Spawns processes via WMI (`Win32_Process Create`, PowerShell `-EncodedCommand`) so they detach from the SSH session and survive disconnect. Start order: database → wait → authserver → worldserver, each skipped if its process already runs. Stop force-kills world/auth then mysqld. Status reports each component from the remote process list.
 - **`gamefunc/minecraft_events.py`** — `MinecraftEventWatcher`: SSH + `docker logs -f` stream per server (vanilla/creative). While the container is down or `MINECRAFT_EVENTS_ENABLED=false`, idles on a 5-minute poll (`docker inspect` state check) instead of streaming; errors during the poll are silent (DEBUG).
@@ -218,7 +218,7 @@ Most commands use `@bridge.bridge_command()`. Exceptions:
 - **`gamefunc/dragonwilds_panel.py`** — `DragonwildsPanel(discord.ui.View)`: single-row start/stop/refresh panel (one server, unlike `MinecraftPanel`'s vanilla/modded split). `persistent=True` sets `timeout=None` for the auto-posted channel panel; `persistent=False` (unused today, available if a manual on-demand panel command is ever added) matches the 1-hour timeout the other panels use.
 - **`deploy/bot-ssh-gate.sh`** — `authorized_keys` forced command installed on Linux game hosts. Only runs the exact remote-command shapes the bot sends (`DockerComposeGameServer`'s compose/inspect/write/rm, the Minecraft watcher's `docker logs -f`, the deploy flow's `ss -tuln`), restricted to allowlisted compose dirs and `DEPLOY_BASE_DIR/<instance>`; everything else is refused and logged. **Any new remote command shape must be added here too** — `tests/test_ssh_gate.py` generates commands from the real `DockerComposeGameServer`, so a drift there fails the test. The container mounts a bot-only `./ssh` (gitignored), not `~/.ssh`; setup in README "Scoped SSH access".
 - **`funfunc/`** — `image_search.py` (Google CSE), `web_search.py` (Tavily, used by `google_search` AI tool), `sandwich.py`.
-- **`webpanel/`** — browser admin panel, runs in-process with the bot (see README "Web Panel" for setup/usage). `app.py` (FastAPI factory, session middleware), `auth.py` (single-admin login, `require_login` dependency, in-memory per-IP lockout after 5 failed logins in 15 min), `routes_servers.py` (dashboard for fixed servers, wraps the same `gamefunc/` classes cogs use), `routes_deploy.py` (template catalog, deploy/manage/delete instances), `templates_catalog.py` (curated templates + `render_compose_yaml`), `store.py` (`data/deployed_servers.json`), `templates/`+`static/` (Jinja2 + htmx, no JS build step).
+- **`webpanel/`** — browser admin panel, runs in-process with the bot (see README "Web Panel" for setup/usage). `app.py` (FastAPI factory, session middleware), `auth.py` (single-admin login, `require_login` dependency, in-memory per-IP lockout after 5 failed logins in 15 min), `routes_servers.py` (dashboard for fixed servers, wraps the same `gamefunc/` classes cogs use; Minecraft rows append the proxy's online state), `routes_deploy.py` (template catalog, deploy/manage/delete instances), `templates_catalog.py` (curated templates + `render_compose_yaml`), `store.py` (`data/deployed_servers.json`), `templates/`+`static/` (Jinja2 + htmx, no JS build step).
 
 ### Shared State
 

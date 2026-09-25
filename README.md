@@ -21,8 +21,8 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Personality system** — short character descriptors stored in `data/personalities.json`; switch at runtime, pin per-channel, persist across restarts
 - **Conversation simulation** — simulate a debate between two personalities on any topic via `!simulate` / `/simulate`
 - **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) — all panel-based
-- **Game server management** — Minecraft (vanilla + creative via SSH+Docker, modded via local process launch), Satisfactory, Palworld, Valheim, Enshrouded, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
-- **Web admin panel** (`webpanel/`) — browser dashboard for every server above: live status, start/stop, and pull-and-redeploy, plus a "Deploy new server" flow that spins up additional game servers from templates (or a custom Docker image) on a configured host. Runs inside the same process as the bot (see [Running](#running)) so it shares `gamefunc/` control code and can post panel actions to the same Discord channels the bot's own event watchers use. Session-login protected — see [Web Panel](#web-panel) below
+- **Game server management** — Minecraft (vanilla + creative via SSH+Docker behind a Velocity proxy, modded via local process launch), Satisfactory, Palworld, RuneScape: Dragonwilds, Valheim, Enshrouded, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; SSH access uses a dedicated, command-restricted key (see [Scoped SSH access](#scoped-ssh-access)); `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
+- **Web admin panel** (`webpanel/`) — browser dashboard for every server above: live status, start/stop, and pull-and-redeploy, plus a "Deploy new server" flow that spins up additional game servers from templates (or a custom Docker image) on a configured host. Runs inside the same process as the bot (see [Running](#running)) so it shares `gamefunc/` control code and can post panel actions to the same Discord channels the bot's own event watchers use. Session-login protected with a brute-force lockout — see [Web Panel](#web-panel) below
 - **Bot self-restart** — an owner (`BOT_OWNER_IDS`) can ask the bot in chat to restart itself; it re-execs in place, picking up any code changes since the last start
 - **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
 
@@ -109,8 +109,10 @@ MAX_AGENT_TURNS=4
 HISTORYLENGTH=30
 
 # Semantically relevant past messages retrieved from ChromaDB per response.
-# These come from beyond the history window — older context only.
-RAG_MESSAGE_CONTEXT=50
+# These come from beyond the history window — older context only. The distance
+# threshold drops most candidates anyway (median 0, p90 ~14 in practice), so this
+# mostly caps the outliers.
+RAG_MESSAGE_CONTEXT=20
 
 # Document chunks retrieved from ChromaDB per response (!learn content).
 RAG_DOC_CONTEXT=5
@@ -130,8 +132,9 @@ RAG_DECAY_HALFLIFE_DAYS=14
 
 # Optional hard token budget for the full LLM payload (estimated as chars÷4).
 # If set, RAG messages are trimmed from the tail (lowest relevance) first, then docs.
-# Leave unset for no cap. Give headroom — the estimate is approximate.
-# MAX_CONTEXT_TOKENS=8000
+# Leave unset for no cap. Give headroom — the estimate is approximate. Recent
+# chat history is never trimmed, only RAG context.
+MAX_CONTEXT_TOKENS=6000
 
 
 # ─────────────────────────────────────────────
@@ -150,7 +153,7 @@ USER_PROFILE_INJECT_MAX=10
 
 # Model used for fact extraction. Can be a cheaper/faster model — it's a simple task.
 # Defaults to MODEL_CHAT if unset.
-# USER_PROFILE_MODEL=gpt-4o-mini
+# USER_PROFILE_MODEL=gpt-6-luna
 
 # Max tokens for the extraction response.
 USER_PROFILE_EXTRACT_TOKENS=200
@@ -176,7 +179,7 @@ DEBATE_SCAN_MIN_MESSAGES=20
 DEBATE_SCAN_MAX_INPUT_CHARS=12000
 
 # Max tokens for the extraction response.
-DEBATE_SCAN_MAX_TOKENS=400
+DEBATE_SCAN_MAX_TOKENS=600
 
 # Cap on tracked entries per channel; oldest resolved (then oldest unresolved) drop first.
 DEBATE_MAX_PER_CHANNEL=15
@@ -188,7 +191,7 @@ DEBATE_INJECT_MAX=3
 DEBATE_SURFACE_COOLDOWN_DAYS=3
 
 # Model used for extraction. Defaults to MODEL_CHAT if unset.
-# DEBATE_MODEL=gpt-4o-mini
+# DEBATE_MODEL=gpt-6-luna
 
 
 # ─────────────────────────────────────────────
@@ -213,7 +216,7 @@ SUMMARY_FORCE_AFTER_DAYS=5
 SUMMARY_DAYS_BEFORE_EXPIRY=5
 
 # Model used for summarization. Defaults to MODEL_CHAT if unset.
-# SUMMARY_MODEL=gpt-4o-mini
+# SUMMARY_MODEL=gpt-6-luna
 
 # Max tokens in the summary output.
 SUMMARY_MAX_TOKENS=500
@@ -295,6 +298,12 @@ MINECRAFT_CREATIVE_RCON_PORT=25575
 MINECRAFT_CREATIVE_RCON_PASSWORD=your_rcon_password
 MINECRAFT_CREATIVE_CONNECT_URL=play.example.com
 
+# Velocity proxy compose service in front of vanilla/creative (same host/compose dir).
+# It is the only thing publishing the player port, so starting either server also
+# starts the proxy (whose depends_on brings up both backends). Its online state is
+# shown in the Minecraft panel and web dashboard. Set empty to disable.
+MINECRAFT_PROXY_SERVICE=mc-proxy
+
 # Discord channels for background event announcements (server start/stop, player join, etc.)
 MINECRAFT_EVENTS_CHANNEL_ID=
 MINECRAFT_CREATIVE_EVENTS_CHANNEL_ID=
@@ -330,6 +339,16 @@ PALWORLD_SSH_HOST=192.168.0.x                # remote host — start/stop via SS
 PALWORLD_SSH_USER=admin                      # optional SSH user
 PALWORLD_COMPOSE_DIR=/home/data              # path to docker-compose on remote host
 PALWORLD_CONNECT_URL=palworld.example.com:8211  # shown as "Connect" in the panel (free text)
+
+# RuneScape: Dragonwilds — same SSH+Docker shape as Palworld. No redeploy: the image is
+# built locally and its entrypoint updates the game on every start.
+DRAGONWILDS_SSH_HOST=192.168.0.x
+DRAGONWILDS_SSH_USER=admin
+DRAGONWILDS_COMPOSE_DIR=/home/data
+DRAGONWILDS_CONNECT_URL=dragonwilds.example.com:7778
+# Channel for the persistent auto-refreshing status panel (and command announcements).
+# Leave blank to disable both.
+DRAGONWILDS_CHANNEL_ID=
 
 
 # ─────────────────────────────────────────────
@@ -460,6 +479,8 @@ docker compose up --build -d
 
 **Deploying to another server:** copy the project folder, recreate `.env` (it is gitignored), and run `docker compose up --build`. The `./data` volume path is relative so no compose edits are needed.
 
+**`.env` changes in Docker:** values reach the container only when it is *created*, so run `docker compose up -d` after editing `.env` — `docker compose restart` keeps the old values. (Running locally, most values are re-read on every call.)
+
 **Updating a running deployment** (pull latest code and pick up any `.env` changes):
 
 ```bash
@@ -468,6 +489,45 @@ docker compose up --build -d
 ```
 
 Bot state (ChromaDB, profiles, debates, reminders, Morning Paper state, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
+
+### Scoped SSH access
+
+The bot SSHes into game hosts to run `docker compose` and friends. It gets a dedicated key that works only from the bot's host and — on Linux hosts — only for the exact commands it sends, enforced by `deploy/bot-ssh-gate.sh` as an `authorized_keys` forced command. A leaked key can start/stop/redeploy game servers and manage web-panel deployments; it cannot open a shell, read files, or reach any host that isn't listed here.
+
+Docker access is root-equivalent on a host regardless (a crafted compose file can mount `/`), so keep the key off hosts that don't run game servers.
+
+**1. On the bot host** (in the project directory):
+
+```bash
+mkdir -m 700 ssh
+ssh-keygen -t ed25519 -N '' -C discord-bot -f ssh/id_ed25519
+# Copy already-verified host keys rather than trusting a fresh scan:
+for h in <game-host-ip> <emucoach-vm-ip>; do ssh-keygen -F "$h" -f ~/.ssh/known_hosts | grep -v '^#'; done > ssh/known_hosts
+chmod 600 ssh/id_ed25519 ssh/known_hosts
+cat ssh/id_ed25519.pub
+```
+
+**2. On each Linux game host** (as the `*_SSH_USER`):
+
+```bash
+sudo install -m 755 bot-ssh-gate.sh /usr/local/bin/bot-ssh-gate   # copy deploy/bot-ssh-gate.sh over first
+```
+
+Then add one line to `~/.ssh/authorized_keys` — arguments are `DEPLOY_BASE_DIR` first, then every `*_COMPOSE_DIR` the bot uses on that host:
+
+```
+restrict,from="<bot-host-ip>",command="/usr/local/bin/bot-ssh-gate /home/data/gameservers/deployed /home/data" ssh-ed25519 AAAA... discord-bot
+```
+
+Refused commands are logged to syslog under `bot-ssh-gate` (`journalctl -t bot-ssh-gate`).
+
+**3. On the EmuCoach Windows VM:** the bot sends encoded PowerShell, which can't be allowlisted, so the key is restricted by source address only. Add to `C:\ProgramData\ssh\administrators_authorized_keys` (admin user) or the user's `authorized_keys`:
+
+```
+from="<bot-host-ip>" ssh-ed25519 AAAA... discord-bot
+```
+
+**4. Switch over:** `docker compose up --build -d`, then exercise start/stop/status for each server and a web-panel deploy/delete. Check `journalctl -t bot-ssh-gate` on the game host for any `DENIED` lines.
 
 ## Testing
 
@@ -478,7 +538,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), reminders, profiles, and Morning Paper scheduling.
+Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), the `REASONING_EFFORT` wrapper, reminders, profile and debate extraction (structured-output parsing), Morning Paper scheduling, Minecraft start/proxy handling, the web panel (auth + login lockout, dashboard, deploy flow, store, templates), and the SSH gate script (allowed command shapes generated from the real `DockerComposeGameServer`, plus injection/traversal attempts).
 
 ## Commands
 
@@ -541,7 +601,7 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | Prefix | Slash | Description |
 |---|---|---|
 | `!status` | `/status` | Live status embed for all configured game servers |
-| `!minecraft` | `/minecraft` | Open the Minecraft server panel |
+| `!minecraft` | `/minecraft` | Open the Minecraft server panel (vanilla/modded status, player counts, proxy status) |
 | `!satisfactory` | `/satisfactory` | Open the Satisfactory server panel |
 | `!start_valheim` | `/valheim start` | Start the Valheim dedicated server |
 | `!stop_valheim` | `/valheim stop` | Stop the Valheim dedicated server |
@@ -551,6 +611,9 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | `!start_emucoach` | `/emucoach start` | Start the EmuCoach WoW server (database → auth → world) |
 | `!stop_emucoach` | `/emucoach stop` | Stop the EmuCoach WoW server |
 | `!emucoach_status` | `/emucoach status` | Check EmuCoach WoW server status |
+| `!start_dragonwilds` | `/dragonwilds start` | Start the RuneScape: Dragonwilds server |
+| `!stop_dragonwilds` | `/dragonwilds stop` | Stop the RuneScape: Dragonwilds server |
+| `!dragonwilds_status` | `/dragonwilds status` | Check Dragonwilds server status |
 | — | `/panel` | Get the link to the web admin panel (`WEBPANEL_URL`) |
 
 ### Misc
@@ -563,7 +626,8 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 ## Architecture
 
 ```
-main.py                       — bot init, shared state, load_extension calls, bot.run()
+main.py                       — bot init, shared state, load_extension calls; runs the bot and
+                                the web panel concurrently in one asyncio loop
 cogs/
   chat.py                     — on_message/on_reaction_add queue-based handler; RAG
                                 integration; profile/debate context injection and
@@ -574,8 +638,9 @@ cogs/
   images.py                   — generate, transform, image commands
   personality.py              — prefix + slash personality commands
   games.py                    — game, snake, adventure commands
-  servers.py                  — minecraft, satisfactory, valheim, enshrouded, emucoach
-                                server commands
+  servers.py                  — minecraft, satisfactory, valheim, enshrouded, emucoach,
+                                dragonwilds server commands; posts/refreshes the persistent
+                                Dragonwilds panel on_ready
   reminders.py                 — remind, reminders, unremind commands
   fun.py                      — commands/help (formatted text list), simulate, sandwich
   rag.py                      — learn, memory, missed, summarize, cleardocs, clearall,
@@ -584,10 +649,11 @@ AIfunc/
   responses.py                — BASE_SYSTEM_PROMPT; generate_gpt_response (agentic tool
                                 loop, rag_context, user_context, debate_context, tools,
                                 auto_resolve), analyze_image, generate_image, transform_image
-  simulate.py                 — ConversationSimulator
+  simulate.py                 — ConversationSimulator (via async_chat_completion)
 chatbotfunc/
   logger.py                   — setup_logging(): RotatingFileHandler → data/bot.log
-  utils.py                    — fetch_message_history, describe_extras, async_chat_completion,
+  utils.py                    — fetch_message_history, describe_extras, async_chat_completion
+                                (applies REASONING_EFFORT to every chat call),
                                 split_message, format_error_message, encode_discord_image,
                                 encode_video_frames, SUPPORTED_DOC_EXTENSIONS
   personalitymanager.py       — PersonalityManager: data/personalities.json store;
@@ -614,7 +680,8 @@ gamefunc/
   snake.py / snake_panel.py    — Snake game, D-pad buttons, score tracking
   tictactoe.py                — Tic-Tac-Toe logic
   minecraft.py / minecraft_panel.py  — thread-safe RCON; vanilla/creative start via
-                                SSH+Docker, modded via local kitty; live status panel
+                                SSH+Docker (also starts the Velocity proxy), modded via
+                                local kitty; live status panel incl. proxy state
   minecraft_events.py          — SSH + `docker logs -f` event watcher per server
                                 (vanilla/creative); idles while offline/disabled
   satisfactory.py             — SSH+Docker start/stop; HTTPS API state (players, tier,
@@ -631,10 +698,13 @@ gamefunc/
                                 Palworld, Minecraft vanilla/creative, and webpanel deploys
   palworld.py                  — PalworldServer: SSH+Docker start/stop/redeploy for Palworld;
                                 status via `docker inspect` (no stateless status API configured)
+  dragonwilds.py / dragonwilds_panel.py — DragonwildsServer (SSH+Docker start/stop/status, no
+                                redeploy) and its persistent auto-refreshing channel panel
 webpanel/                      — browser admin panel; runs in-process with the bot (see main.py)
   app.py                       — FastAPI app factory; session middleware, router wiring
   auth.py                       — single-admin login (WEBPANEL_USERNAME/_PASSWORD_HASH), session
-                                cookie signed by WEBPANEL_SECRET_KEY, require_login dependency
+                                cookie signed by WEBPANEL_SECRET_KEY, require_login dependency,
+                                per-IP lockout after 5 failed logins in 15 min
   routes_servers.py            — dashboard for the fixed servers above (status/start/stop/redeploy)
   routes_deploy.py             — "Deploy new server" flow: template catalog, port-collision
                                 check, compose-file generation, and management of what's deployed
@@ -646,7 +716,12 @@ funfunc/
   image_search.py             — Google Custom Search wrapper
   web_search.py               — Tavily web search (AI google_search tool)
   sandwich.py                 — random sandwich generator
+deploy/
+  bot-ssh-gate.sh              — authorized_keys forced command for game hosts; only runs the
+                                exact remote commands the bot sends (see Scoped SSH access)
 tests/                         — pytest + pytest-asyncio; pure-logic coverage, no live services
+ssh/                           — bot-only SSH key + known_hosts, mounted into the container
+                                (gitignored; see Scoped SSH access)
 data/                         — runtime artifacts (gitignored in full)
   chroma/                     — ChromaDB persistent vector store
   personalities.json          — personality descriptor list + active selection
@@ -686,13 +761,13 @@ PDFs are text-extracted via `pypdf`. Scanned/image-only PDFs won't have usable t
 
 ## User Profiles
 
-After every real text exchange, a lightweight background LLM call extracts new facts about the user from the conversation (preferences, games, habits, running jokes, anything distinctive) and merges them into `data/user_profiles.json`. On the next message from that user, the profile is injected into the system prompt as a `USER PROFILE:` section before RAG context, so the model knows who it's talking to without relying on retrieval.
+After every real text exchange, a lightweight background LLM call extracts new facts about the user from the conversation (preferences, games, habits, running jokes, anything distinctive) and merges them into `data/user_profiles.json`. The call uses a strict JSON-schema `response_format`, so the output shape is guaranteed rather than parsed out of free text; a cheap model (`USER_PROFILE_MODEL=gpt-6-luna`) handles it as well as the chat model. On the next message from that user, the profile is injected into the system prompt as a `USER PROFILE:` section before RAG context, so the model knows who it's talking to without relying on retrieval.
 
 Profiles are per-user (keyed by Discord user ID) and persist indefinitely. The `USER_PROFILE_MAX_FACTS` cap (default: 20) keeps profiles from bloating — the oldest facts are dropped when it's hit, keeping the most recently learned information. `!whoami` / `/whoami` shows the current list; `!forget <n>` / `/forget` removes one fact, `!forget all` clears everything. Gitignored; never committed.
 
 ## Debates & Running Jokes
 
-A background scanner (`DEBATE_SCAN_INTERVAL_HOURS`, default: 12) pulls each channel's recent history directly from Discord and sends it to an LLM that returns `new` / `update` / `resolve` actions against the channel's tracked list in `data/debates.json`. Unresolved entries that haven't been surfaced within `DEBATE_SURFACE_COOLDOWN_DAYS` (default: 3) are injected into the system prompt as an `ONGOING THREADS YOU REMEMBER:` section — the model is told to bring one up only if it genuinely fits, never to force it. After a response is sent, topic words are fuzzy-matched against the response text to stamp `last_surfaced_ts` and prevent immediate repeats.
+A background scanner (`DEBATE_SCAN_INTERVAL_HOURS`, default: 12) pulls each channel's recent history directly from Discord and sends it to an LLM that returns `new` / `update` / `resolve` actions (strict JSON-schema output) against the channel's tracked list in `data/debates.json`. A truncated response is dropped without advancing the scan window, so the next scan retries it. Unresolved entries that haven't been surfaced within `DEBATE_SURFACE_COOLDOWN_DAYS` (default: 3) are injected into the system prompt as an `ONGOING THREADS YOU REMEMBER:` section — the model is told to bring one up only if it genuinely fits, never to force it. After a response is sent, topic words are fuzzy-matched against the response text to stamp `last_surfaced_ts` and prevent immediate repeats.
 
 ## The Morning Paper
 
@@ -713,7 +788,7 @@ Use `!pin [n]` / `/personality pin [n]` to lock a specific personality to a chan
 
 ## Web Panel
 
-A browser dashboard (`webpanel/`) for everything in [Game Servers](#game-servers) above, plus deploying new ones. It runs inside the same process as the bot (`main.py` runs `bot.start()` and `uvicorn.Server.serve()` concurrently), so it shares `.env`, the mounted SSH keys, and the `gamefunc/` control classes — no separate service or duplicated config.
+A browser dashboard (`webpanel/`) for everything in [Game Servers](#game-servers) above, plus deploying new ones. It runs inside the same process as the bot (`main.py` runs `bot.start()` and `uvicorn.Server.serve()` concurrently), so it shares `.env`, the bot's scoped SSH key, and the `gamefunc/` control classes — no separate service or duplicated config.
 
 **Setup:**
 
@@ -725,10 +800,10 @@ A browser dashboard (`webpanel/`) for everything in [Game Servers](#game-servers
    ```bash
    python -c "from webpanel.auth import hash_password; print(hash_password('your-password'))"
    ```
-3. The panel listens on `WEBPANEL_PORT` (default `8000`) inside the container. Reverse-proxy it behind your own auth/TLS layer — do **not** expose it directly to the internet unauthenticated. This panel can reach every configured host over SSH and Windows VM over WMI, so treat it as sensitive as SSH access itself; an IP allowlist at the reverse proxy (in addition to the login) is a reasonable extra layer given the blast radius.
+3. The panel listens on `WEBPANEL_PORT` (default `8000`) inside the container. Five failed logins from one IP within 15 minutes lock that IP out until the oldest failure ages out (in-memory; behind a reverse proxy all requests share the proxy's IP, which is fine for a single admin). Reverse-proxy it behind your own auth/TLS layer — do **not** expose it directly to the internet unauthenticated. This panel can reach every configured host over SSH and Windows VM over WMI, so treat it as sensitive as SSH access itself; an IP allowlist at the reverse proxy (in addition to the login) is a reasonable extra layer given the blast radius.
 4. Optionally set `WEBPANEL_URL` so `/panel` in Discord can post the link.
 
-**Dashboard:** live status + Start/Stop/Redeploy for Minecraft vanilla/creative, Satisfactory, Palworld, Valheim, Enshrouded, and EmuCoach — wrapping the same `gamefunc/` classes the Discord commands use, so state is always consistent between the two surfaces. Rows auto-refresh every 15s via htmx polling, no page reload.
+**Dashboard:** live status + Start/Stop/Redeploy for Minecraft vanilla/creative (rows also show the Velocity proxy's online state), Satisfactory, Palworld, Valheim, Enshrouded, and EmuCoach — wrapping the same `gamefunc/` classes the Discord commands use, so state is always consistent between the two surfaces. Rows auto-refresh every 15s via htmx polling, no page reload.
 
 **Deploy new server:** `/deploy` offers a small catalog of curated templates (see `webpanel/templates_catalog.py`) plus a "custom image" template for anything not curated. Deploying:
 1. Validates the instance name and checks the requested port(s) aren't already bound on `DEPLOY_TARGET_HOST` (a live `ss -tuln` check over SSH).
@@ -752,42 +827,3 @@ Deployed instances then appear on the dashboard like any fixed server (start/sto
 - **Profile extraction latency** — user profiles are updated in the background after each response. A fact mentioned in message N is available starting from message N+1, not immediately.
 - **Summarizer/debate scanner first run** — these background loops start their first scan after their interval has elapsed, not immediately on startup.
 - **RAG memory is per-channel** — each Discord channel has its own isolated collection. `!clearall` only affects the current channel.
-
-### Scoped SSH access
-
-The bot SSHes into game hosts to run `docker compose` and friends. It gets a dedicated key that works only from the bot's host and — on Linux hosts — only for the exact commands it sends, enforced by `deploy/bot-ssh-gate.sh` as an `authorized_keys` forced command. A leaked key can start/stop/redeploy game servers and manage web-panel deployments; it cannot open a shell, read files, or reach any host that isn't listed here.
-
-Docker access is root-equivalent on a host regardless (a crafted compose file can mount `/`), so keep the key off hosts that don't run game servers.
-
-**1. On the bot host** (in the project directory):
-
-```bash
-mkdir -m 700 ssh
-ssh-keygen -t ed25519 -N '' -C discord-bot -f ssh/id_ed25519
-# Copy already-verified host keys rather than trusting a fresh scan:
-for h in <game-host-ip> <emucoach-vm-ip>; do ssh-keygen -F "$h" -f ~/.ssh/known_hosts | grep -v '^#'; done > ssh/known_hosts
-chmod 600 ssh/id_ed25519 ssh/known_hosts
-cat ssh/id_ed25519.pub
-```
-
-**2. On each Linux game host** (as the `*_SSH_USER`):
-
-```bash
-sudo install -m 755 bot-ssh-gate.sh /usr/local/bin/bot-ssh-gate   # copy deploy/bot-ssh-gate.sh over first
-```
-
-Then add one line to `~/.ssh/authorized_keys` — arguments are `DEPLOY_BASE_DIR` first, then every `*_COMPOSE_DIR` the bot uses on that host:
-
-```
-restrict,from="<bot-host-ip>",command="/usr/local/bin/bot-ssh-gate /home/data/gameservers/deployed /home/data" ssh-ed25519 AAAA... discord-bot
-```
-
-Refused commands are logged to syslog under `bot-ssh-gate` (`journalctl -t bot-ssh-gate`).
-
-**3. On the EmuCoach Windows VM:** the bot sends encoded PowerShell, which can't be allowlisted, so the key is restricted by source address only. Add to `C:\ProgramData\ssh\administrators_authorized_keys` (admin user) or the user's `authorized_keys`:
-
-```
-from="<bot-host-ip>" ssh-ed25519 AAAA... discord-bot
-```
-
-**4. Switch over:** `docker compose up --build -d`, then exercise start/stop/status for each server and a web-panel deploy/delete. Check `journalctl -t bot-ssh-gate` on the game host for any `DENIED` lines.
