@@ -90,11 +90,18 @@ async def _status(entry: dict) -> dict:
     }
     try:
         if kind == "minecraft":
-            data = await MinecraftServer().get_status(entry["mc_type"])
+            mc = MinecraftServer()
+            data, proxy_up = await asyncio.gather(
+                mc.get_status(entry["mc_type"]), mc.proxy_running(entry["mc_type"]),
+            )
             out["online"] = data is not None
+            parts = []
             if data:
                 tps = f" · {data['tps']} TPS" if data["tps"] is not None else ""
-                out["detail"] = f"{data['current']}/{data['maximum']} players{tps}"
+                parts.append(f"{data['current']}/{data['maximum']} players{tps}")
+            if proxy_up is not None:
+                parts.append("Proxy 🟢 online" if proxy_up else "Proxy 🔴 offline")
+            out["detail"] = " · ".join(parts)
             out["connect"] = os.getenv(f"MINECRAFT_{entry['mc_type'].upper()}_CONNECT_URL", "")
             out["redeployable"] = True
         elif kind == "satisfactory":

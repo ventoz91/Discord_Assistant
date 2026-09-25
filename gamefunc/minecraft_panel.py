@@ -36,6 +36,7 @@ class MinecraftPanel(discord.ui.View):
         self.server = MinecraftServer()
         self.states = {'vanilla': 'offline', 'modded': 'offline'}
         self.server_data: dict[str, dict | None] = {'vanilla': None, 'modded': None}
+        self.proxy_online: bool | None = None
         self._message: discord.Message | None = None
         self._poll_task: asyncio.Task | None = None
         self._sync_buttons()
@@ -81,6 +82,8 @@ class MinecraftPanel(discord.ui.View):
         embed = discord.Embed(title='🎮 Minecraft Servers', color=0x2ECC71)
         embed.add_field(name='Vanilla', value=self._field_value('vanilla'), inline=True)
         embed.add_field(name='Modded',  value=self._field_value('modded'),  inline=True)
+        if self.proxy_online is not None:
+            embed.add_field(name='Proxy', value=_STATUS['online' if self.proxy_online else 'offline'], inline=True)
         return embed
 
     def _sync_buttons(self):
@@ -99,15 +102,18 @@ class MinecraftPanel(discord.ui.View):
 
     async def _set_online(self, server_type: str, message: discord.Message):
         self.server_data[server_type] = await self.server.get_status(server_type)
+        if server_type != 'modded':
+            self.proxy_online = await self.server.proxy_running(server_type)
         self.states[server_type] = 'online' if self.server_data[server_type] else 'offline'
         self._sync_buttons()
         await message.edit(embed=self.build_embed(), view=self)
 
     async def refresh_states(self, message: discord.Message):
         """Check actual server state via RCON and update the panel."""
-        vanilla, modded = await asyncio.gather(
+        vanilla, modded, self.proxy_online = await asyncio.gather(
             self.server.get_status('vanilla'),
             self.server.get_status('modded'),
+            self.server.proxy_running(),
         )
         self.server_data['vanilla'] = vanilla
         self.server_data['modded']  = modded

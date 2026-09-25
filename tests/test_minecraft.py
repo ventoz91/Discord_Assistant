@@ -48,3 +48,22 @@ async def test_proxy_can_be_disabled(server, monkeypatch):
     monkeypatch.setenv("MINECRAFT_PROXY_SERVICE", "")
     assert await mc.start("vanilla") is True
     assert sent == ["cd /home/data && docker compose up -d minecraft"]
+
+
+async def test_proxy_running_checks_proxy_container(server, monkeypatch):
+    mc, sent, _ = server
+    monkeypatch.setattr("gamefunc.compose_server.DockerComposeGameServer._ssh_run",
+                        lambda self, cmd, timeout=30, input_text=None: _ok_true(sent, cmd))
+    assert await mc.proxy_running() is True
+    assert sent == ["docker inspect -f '{{.State.Running}}' mc-proxy"]
+
+
+async def test_proxy_running_none_when_disabled(server, monkeypatch):
+    mc, _, _ = server
+    monkeypatch.setenv("MINECRAFT_PROXY_SERVICE", "")
+    assert await mc.proxy_running() is None
+
+
+async def _ok_true(sent, cmd):
+    sent.append(cmd)
+    return True, "true"

@@ -126,6 +126,12 @@ class MinecraftServer:
             service_name=service,
         )
 
+    async def proxy_running(self, server_type: str = 'vanilla') -> bool | None:
+        """Whether the proxy container is up; None if no proxy is configured.
+        Needed alongside RCON status, which bypasses the proxy entirely."""
+        proxy = self._proxy(server_type)
+        return await proxy.is_running() if proxy else None
+
     async def start(self, server_type: str) -> bool:
         if server_type in self._compose:
             if not os.getenv(f'MINECRAFT_{server_type.upper()}_SSH_HOST', ''):
