@@ -106,3 +106,36 @@ class TestSplitMessage:
 
     def test_empty_returns_no_chunks(self):
         assert split_message("   ") == []
+
+
+class TestReasoningEffort:
+    @staticmethod
+    def _capture(monkeypatch):
+        import chatbotfunc.utils as utils
+        seen = {}
+        monkeypatch.setattr(utils.openai.chat.completions, "create", lambda **kw: seen.update(kw) or "resp")
+        return utils, seen
+
+    async def test_defaults_to_none(self, monkeypatch):
+        utils, seen = self._capture(monkeypatch)
+        monkeypatch.delenv("REASONING_EFFORT", raising=False)
+        assert await utils.async_chat_completion(model="m") == "resp"
+        assert seen["reasoning_effort"] == "none"
+
+    async def test_env_override(self, monkeypatch):
+        utils, seen = self._capture(monkeypatch)
+        monkeypatch.setenv("REASONING_EFFORT", "Low")
+        await utils.async_chat_completion(model="m")
+        assert seen["reasoning_effort"] == "low"
+
+    async def test_off_omits_param(self, monkeypatch):
+        utils, seen = self._capture(monkeypatch)
+        monkeypatch.setenv("REASONING_EFFORT", "off")
+        await utils.async_chat_completion(model="m")
+        assert "reasoning_effort" not in seen
+
+    async def test_caller_value_wins(self, monkeypatch):
+        utils, seen = self._capture(monkeypatch)
+        monkeypatch.setenv("REASONING_EFFORT", "none")
+        await utils.async_chat_completion(model="m", reasoning_effort="high")
+        assert seen["reasoning_effort"] == "high"

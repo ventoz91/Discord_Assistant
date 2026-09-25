@@ -134,8 +134,7 @@ class FunCog(commands.Cog):
         await self._simulate_impl(ctx, topic, personality_indices, turns)
 
     async def _simulate_impl(self, ctx, topic: str, personality_indices: list, turns: int = 4):
-        api_key = os.getenv("OPENAI_API_KEY")
-        simulator = ConversationSimulator(api_key, os.getenv("MODEL_CHAT"))
+        simulator = ConversationSimulator(os.getenv("MODEL_CHAT"))
         first = True
         async for label, text in simulator.simulate_conversation(topic, personality_indices, turns):
             if label == "intro":

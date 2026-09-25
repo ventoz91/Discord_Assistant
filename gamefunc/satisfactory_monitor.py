@@ -2,7 +2,7 @@ import asyncio
 import logging
 import os
 
-from openai import AsyncOpenAI
+from chatbotfunc.utils import async_chat_completion
 from gamefunc.satisfactory import SatisfactoryServer
 
 logger = logging.getLogger("bot.satisfactory_monitor")
@@ -21,8 +21,7 @@ _SYSTEM = (
 
 
 class SatisfactoryMonitor:
-    def __init__(self, openai_api_key: str):
-        self._client = AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self):
         self._server = SatisfactoryServer()
         self._last_tier: int | None = None
         self._task: asyncio.Task | None = None
@@ -66,7 +65,7 @@ class SatisfactoryMonitor:
             return
         personality = getattr(bot, 'chatgpt_behaviour', '')
         try:
-            resp = await self._client.chat.completions.create(
+            resp = await async_chat_completion(
                 model=os.getenv('MODEL_CHAT', 'gpt-4o'),
                 messages=[
                     {"role": "system", "content": _SYSTEM.format(personality=personality)},

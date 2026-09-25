@@ -64,7 +64,12 @@ BOT_OWNER_IDS=123456789
 OPENAI_API_KEY=your_openai_api_key
 
 # Model used for chat completions
-MODEL_CHAT=gpt-4o
+MODEL_CHAT=gpt-6-sol
+
+# Reasoning effort sent on every chat call (default: none). GPT-6 models reject
+# function tools on Chat Completions unless this is "none". Set to "off" to omit
+# the param entirely for non-reasoning models like gpt-4o.
+REASONING_EFFORT=none
 
 # Max tokens for normal chat responses
 MAX_TOKENS=500

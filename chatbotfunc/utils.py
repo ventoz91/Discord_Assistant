@@ -239,6 +239,14 @@ async def fetch_message_history(channel, bot: commands.Bot, exclude_message_id: 
     return message_history
 
 async def async_chat_completion(*args, **kwargs):
+    # GPT-6 models default to "medium" reasoning, which Chat Completions
+    # rejects alongside function tools, and whose hidden reasoning tokens eat
+    # the small max_completion_tokens caps used throughout. REASONING_EFFORT
+    # (default "none") applies to every call unless the caller passes its own;
+    # set it to "off" for non-reasoning models (e.g. gpt-4o) that reject the param.
+    effort = os.getenv("REASONING_EFFORT", "none").strip().lower()
+    if effort and effort != "off":
+        kwargs.setdefault("reasoning_effort", effort)
     response = await asyncio.to_thread(openai.chat.completions.create, *args, **kwargs)
     return response
 

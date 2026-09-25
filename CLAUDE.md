@@ -16,7 +16,8 @@ All configuration lives in **`.env`** at the project root. All values are read a
 **Core**
 - `DISCORD_TOKEN` — Discord bot token
 - `OPENAI_API_KEY` — OpenAI API key
-- `MODEL_CHAT` — OpenAI model for chat completions (e.g. `gpt-4o`)
+- `MODEL_CHAT` — OpenAI model for chat completions (e.g. `gpt-6-sol`)
+- `REASONING_EFFORT` — `reasoning_effort` applied to every chat call by `async_chat_completion` unless the caller passes its own (default: `none`). GPT-6 models default to medium reasoning, which Chat Completions rejects alongside function tools and whose hidden tokens would eat the small `max_completion_tokens` caps. `off` omits the param (for non-reasoning models like `gpt-4o`). All chat calls — including the simulator and Satisfactory announcer — go through this wrapper.
 - `CHANNEL_IDS` — Comma-separated Discord channel IDs the bot listens to
 - `BOT_OWNER_IDS` — Comma-separated Discord user IDs allowed to ask the bot to restart itself in chat (the `restart_bot` AI tool)
 - `MAX_TOKENS` — Max completion tokens for responses (default: 500)

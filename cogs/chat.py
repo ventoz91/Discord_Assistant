@@ -206,7 +206,6 @@ class ChatCog(commands.Cog):
         asyncio.create_task(debate_scanner_loop(self.bot, os.getenv("MODEL_CHAT", "")))
         asyncio.create_task(morning_paper_loop(self.bot))
 
-        api_key = os.getenv("OPENAI_API_KEY", "")
         mc_channel = _channel_id('MINECRAFT_EVENTS_CHANNEL_ID')
         if mc_channel:
             self._mc_watcher = MinecraftEventWatcher('VANILLA')
@@ -217,7 +216,7 @@ class ChatCog(commands.Cog):
             self._mc_creative_watcher.start(self.bot, mc_creative_channel)
         sf_channel = _channel_id('SATISFACTORY_EVENTS_CHANNEL_ID')
         if sf_channel:
-            self._sf_monitor = SatisfactoryMonitor(api_key)
+            self._sf_monitor = SatisfactoryMonitor()
             self._sf_monitor.start(self.bot, sf_channel)
 
     def _enqueue(self, channel_id: int, coro_fn):

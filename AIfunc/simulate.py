@@ -1,8 +1,8 @@
 import random
 import asyncio
-from openai import AsyncOpenAI
 from chatbotfunc.personalitymanager import PersonalityManager
 from AIfunc.responses import BASE_SYSTEM_PROMPT
+from chatbotfunc.utils import async_chat_completion
 
 personality_manager = PersonalityManager()
 
@@ -18,12 +18,11 @@ JUDGE_PROMPT = (
 
 
 class ConversationSimulator:
-    def __init__(self, openai_api_key, model_chat):
-        self.client = AsyncOpenAI(api_key=openai_api_key)
+    def __init__(self, model_chat):
         self.model_chat = model_chat
 
     async def _get_name(self, descriptor: str) -> str:
-        resp = await self.client.chat.completions.create(
+        resp = await async_chat_completion(
             model=self.model_chat,
             messages=[{"role": "user", "content": f"Reply with only the character's name from this description, nothing else: {descriptor}"}],
             max_completion_tokens=15,
@@ -75,7 +74,7 @@ class ConversationSimulator:
             if i == 0:
                 messages.append({"role": "user", "content": f"Open the debate on: {topic}"})
 
-            response = await self.client.chat.completions.create(
+            response = await async_chat_completion(
                 model=self.model_chat,
                 messages=messages,
                 temperature=1.5,
@@ -92,7 +91,7 @@ class ConversationSimulator:
             {"role": "system", "content": JUDGE_PROMPT},
             {"role": "user", "content": f"Topic: {topic}\n\n{transcript}"},
         ]
-        judge_response = await self.client.chat.completions.create(
+        judge_response = await async_chat_completion(
             model=self.model_chat,
             messages=judge_messages,
             temperature=1.0,
