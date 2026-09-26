@@ -18,7 +18,12 @@ GENERATE_TOOL = {
         "parameters": {
             "type": "object",
             "properties": {
-                "prompt": {"type": "string", "description": "Detailed image generation prompt describing what to create"}
+                "prompt": {"type": "string", "description": "Detailed image generation prompt describing what to create"},
+                "aspect": {
+                    "type": "string",
+                    "enum": ["square", "landscape", "portrait"],
+                    "description": "Only set when the user asks for a shape or the request clearly implies one (desktop wallpaper, banner → landscape; phone background, poster → portrait). Omit otherwise to use the channel's default size."
+                }
             },
             "required": ["prompt"]
         }

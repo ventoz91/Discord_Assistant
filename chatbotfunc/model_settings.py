@@ -1,10 +1,11 @@
-"""Runtime-switchable chat and image models (`/model`).
+"""Runtime-switchable chat and image models and image size (`/model`).
 
 An override picked in Discord is stored in data/model_settings.json and wins
 over MODEL_CHAT / IMAGE_MODEL from .env; "default" clears it. Only models in
 the curated lists below can be picked — each was verified against the bot's
 actual call shapes (tools + reasoning_effort="none" for chat; generate + edit
-for images), so a switch can't break replies. Background jobs keep their own
+for images; every image model at every size, generate + edit, 2026-09-25),
+so a switch can't break replies. Background jobs keep their own
 *_MODEL settings and don't follow a switch.
 
 Cost hints are for the picker; real spend is tracked by chatbotfunc/usage.py.
@@ -32,8 +33,21 @@ IMAGE_CHOICES = [
     ("gpt-image-2.5-flare", "Newest · ~2¢ per image"),
     ("gpt-image-1",         "Original · ~4¢ per image"),
 ]
-_CHOICES = {"chat": CHAT_CHOICES, "image": IMAGE_CHOICES}
-_ENV = {"chat": ("MODEL_CHAT", "gpt-6-sol"), "image": ("IMAGE_MODEL", "gpt-image-1")}
+SIZE_CHOICES = [
+    ("1024x1024", "Square"),
+    ("1536x1024", "Landscape · ~1.5× cost on gpt-image-1/mini"),
+    ("1024x1536", "Portrait · ~1.5× cost on gpt-image-1/mini"),
+    ("auto",      "Model picks the shape from the prompt"),
+]
+# Per-request shapes (AI tool / `/generate aspect:`), overriding the default size.
+ASPECTS = {"square": "1024x1024", "landscape": "1536x1024", "portrait": "1024x1536"}
+
+_CHOICES = {"chat": CHAT_CHOICES, "image": IMAGE_CHOICES, "size": SIZE_CHOICES}
+_ENV = {
+    "chat": ("MODEL_CHAT", "gpt-6-sol"),
+    "image": ("IMAGE_MODEL", "gpt-image-1"),
+    "size": ("IMAGE_SIZE", "1024x1024"),
+}
 
 
 def _load() -> dict:
@@ -70,8 +84,24 @@ def get_image_model() -> str:
     return current("image")
 
 
+def get_image_size() -> str:
+    return current("size")
+
+
+def aspect_for(width: int, height: int) -> str:
+    """The supported size closest in shape to width x height (transforms keep
+    the source image's orientation instead of following the default size)."""
+    ratio = width / height if height else 1
+    if ratio >= 1.2:
+        return ASPECTS["landscape"]
+    if ratio <= 1 / 1.2:
+        return ASPECTS["portrait"]
+    return ASPECTS["square"]
+
+
 def set_model(kind: str, model: str | None, set_by: str) -> None:
-    """Store an override; model=None clears it back to the .env default."""
+    """Store an override; model=None clears it back to the .env default.
+    For kind "size" the value is a size string (stored under "model" too)."""
     if model is not None and model not in {m for m, _ in _CHOICES[kind]}:
         raise ValueError(f"{model} is not a selectable {kind} model")
     with _lock:

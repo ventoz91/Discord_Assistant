@@ -32,7 +32,7 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!clearall",                  "Wipe all memory — requires Manage Messages"),
     ],
     "🖼️  IMAGES": [
-        ("!generate <prompt>  ·  /generate",  "Generate an image with AI"),
+        ("!generate [--landscape|--portrait] <prompt>  ·  /generate",  "Generate an image with AI"),
         ("!transform <inst>  ·  /transform",  "Transform an attached image"),
         ("!transform last <inst>",            "Transform the last image in this channel"),
         ("!image <query>  ·  /image",         "Search and describe an image"),
@@ -55,7 +55,7 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!dragonwilds_status  ·  /dragonwilds status", "Dragonwilds status"),
     ],
     "🎲  MISC": [
-        ("!model  ·  /model",        "See or switch the chat and image models"),
+        ("!model  ·  /model",        "See or switch the chat/image models and image size"),
         ("!usage  ·  /usage",        "Estimated OpenAI spend (today / 7d / 30d)"),
         ("!sandwich  ·  /sandwich",  "Random sandwich with an AI image"),
     ],

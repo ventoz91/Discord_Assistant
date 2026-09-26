@@ -23,7 +23,7 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Mini-games** — Tic-Tac-Toe (`!game`), Snake (`!snake`, button D-pad, score tracked), and a QUD-style ASCII dungeon (`!adventure`) — all panel-based
 - **Game server management** — Minecraft (vanilla + creative via SSH+Docker behind a Velocity proxy; modded as a systemd service on a desktop PC), Satisfactory, Palworld, RuneScape: Dragonwilds, and the EmuCoach WoW repack (Windows VM over SSH) all have start/stop/status; SSH access uses a dedicated, command-restricted key (see [Scoped SSH access](#scoped-ssh-access)); `!status` / `/status` shows all configured servers at a glance in one embed; background watchers announce Minecraft/Satisfactory events to configured channels
 - **Web admin panel** (`webpanel/`) — browser dashboard for every server above: live status, start/stop, and pull-and-redeploy, plus a "Deploy new server" flow that spins up additional game servers from templates (or a custom Docker image) on a configured host. Runs inside the same process as the bot (see [Running](#running)) so it shares `gamefunc/` control code and can post panel actions to the same Discord channels the bot's own event watchers use. Session-login protected with a brute-force lockout — see [Web Panel](#web-panel) below
-- **Model switching** — `/model` shows the current chat and image models with a dropdown for each; anyone can switch between curated, verified models and the change applies bot-wide immediately
+- **Model switching** — `/model` shows the current chat model, image model and default image size (square/landscape/portrait/auto) with a dropdown for each; anyone can switch between curated, verified models and the change applies bot-wide immediately
 - **Cost tracking** — every OpenAI call's token usage is recorded per feature and model; `/usage` shows estimated spend for today, 7 and 30 days
 - **Bot self-restart** — an owner (`BOT_OWNER_IDS`) can ask the bot in chat to restart itself; it re-execs in place, picking up any code changes since the last start
 - **Cog-based architecture** — each feature domain is a hot-reloadable `cogs/` module; most commands available as both `!prefix` and `/slash`
@@ -86,7 +86,8 @@ MAX_TOKENS=500
 # Response creativity (0.0–2.0). 1.5 is expressive and characterful; lower = more focused.
 TEMPERATURE=1.5
 
-# Image dimensions: 1024x1024 / 1536x1024 (landscape) / 1024x1536 (portrait)
+# Default image dimensions: 1024x1024 / 1536x1024 (landscape) / 1024x1536 (portrait) / auto.
+# /model can override it; transforms keep the source image's shape instead.
 IMAGE_SIZE=1024x1024
 
 # Image quality: low / medium / high (higher = better quality and higher cost)
@@ -598,7 +599,7 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 
 | Prefix | Slash | Description |
 |---|---|---|
-| `!generate <prompt>` | `/generate` | Generate an image (current image model — see `/model`) |
+| `!generate [--landscape\|--portrait\|--square] <prompt>` | `/generate [aspect]` | Generate an image (current image model and default size — see `/model`) |
 | `!transform <instructions>` | `/transform` | Transform an attached image |
 | `!transform last <instructions>` | `/transform use_last:True` | Transform the most recent image in this channel |
 | `!image <query>` | `/image` | Search Google Images and describe the result |
@@ -632,7 +633,7 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | Prefix | Slash | Description |
 |---|---|---|
 | `!commands` / `!help` | `/commands` / `/help` | Show all bot commands with descriptions |
-| `!model` | `/model` | See or switch the chat and image models (dropdowns; applies bot-wide) |
+| `!model` | `/model` | See or switch the chat/image models and default image size (dropdowns; applies bot-wide) |
 | `!usage` | `/usage` | Estimated OpenAI spend: today, 7 and 30 days, by feature and model |
 | `!sandwich` | `/sandwich` | Generate a random sandwich with an AI image |
 

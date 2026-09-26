@@ -9,6 +9,7 @@ import openai
 from AIfunc.responses import generate_image, transform_image, analyze_image
 from funfunc.image_search import main as search_image
 from chatbotfunc.utils import format_error_message, encode_discord_image
+from chatbotfunc.model_settings import ASPECTS, get_image_size
 
 logger = logging.getLogger("bot.images")
 
@@ -19,17 +20,17 @@ class ImagesCog(commands.Cog):
 
     # ── Shared logic ──────────────────────────────────────────────────────────
 
-    async def _generate_impl(self, ctx, prompt: str):
+    async def _generate_impl(self, ctx, prompt: str, aspect: str | None = None):
         await ctx.defer()
+        size = ASPECTS.get(aspect) or get_image_size()
         try:
-            image_bytes = await generate_image(prompt)
+            image_bytes = await generate_image(prompt, size=size)
             if isinstance(image_bytes, str):
                 await ctx.respond(f"Could not generate image: {image_bytes}")
                 return
             if not image_bytes:
                 raise ValueError("Failed to generate an image.")
             self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_generated"] = image_bytes
-            size = os.getenv("IMAGE_SIZE", "1024x1024")
             quality = os.getenv("IMAGE_QUALITY", "medium")
             await ctx.respond(
                 f"Generated Image -- generation isn't free, keep that in mind (current settings: {size}, {quality} quality)\nPrompt: {prompt}",
@@ -88,13 +89,28 @@ class ImagesCog(commands.Cog):
 
     # ── Prefix + slash bridge commands ────────────────────────────────────────
 
-    @bridge.bridge_command(description="Generate an image with AI")
-    async def generate(self, ctx, *, prompt: str):
-        await self._generate_impl(ctx, prompt)
-
     @bridge.bridge_command(name="image", description="Search Google Images and describe the result")
     async def image_cmd(self, ctx, *, query: str):
         await self._image_impl(ctx, query)
+
+    # ── Generate: prefix takes a leading --landscape/--portrait/--square flag,
+    #    slash an explicit aspect option ──────────────────────────────────────
+
+    @commands.command(name="generate")
+    async def generate_prefix(self, ctx, *, prompt: str):
+        aspect = None
+        first, _, rest = prompt.partition(" ")
+        if first.startswith("--") and first[2:].lower() in ASPECTS and rest.strip():
+            aspect, prompt = first[2:].lower(), rest.strip()
+        async with ctx.typing():
+            await self._generate_impl(ctx, prompt, aspect)
+
+    @discord.slash_command(name="generate", description="Generate an image with AI")
+    async def generate_slash(self, ctx,
+        prompt: discord.Option(str, "What to draw"),
+        aspect: discord.Option(str, "Image shape (default: the /model size setting)",
+                               choices=list(ASPECTS), required=False) = None):
+        await self._generate_impl(ctx, prompt, aspect)
 
     # ── Prefix-only transform (attachment handling differs for slash) ──────────
 

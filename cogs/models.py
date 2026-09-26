@@ -9,16 +9,19 @@ from chatbotfunc import usage
 logger = logging.getLogger("bot.models")
 
 _DEFAULT = "__default__"
-_TITLES = {"chat": "Chat model", "image": "Image model"}
+_TITLES = {"chat": "Chat model", "image": "Image model", "size": "Image size"}
+_ROWS = {"chat": 0, "image": 1, "size": 2}
 
 
 def build_embed() -> discord.Embed:
     embed = discord.Embed(
         title="🧠 Models",
-        description="Pick from the dropdowns — changes apply to the whole bot right away.",
+        description="Pick from the dropdowns — changes apply to the whole bot right away.\n"
+                    "-# Size is the default; `/generate aspect:` or asking for a shape overrides it per image. "
+                    "Transforms keep the source image's shape.",
         color=0x5865F2,
     )
-    for kind in ("chat", "image"):
+    for kind in _TITLES:
         entry = ms.override(kind)
         value = f"`{ms.current(kind)}`"
         value += f"\n-# set by {entry['set_by']}" if entry else "\n-# default from .env"
@@ -38,8 +41,7 @@ class ModelSelect(discord.ui.Select):
             label=f"Default ({ms.env_default(kind)})", value=_DEFAULT,
             description="Clear the override and use the .env setting",
         ))
-        super().__init__(placeholder=f"{_TITLES[kind]}: {current}", options=options,
-                         row=0 if kind == "chat" else 1)
+        super().__init__(placeholder=f"{_TITLES[kind]}: {current}", options=options, row=_ROWS[kind])
 
     async def callback(self, interaction: discord.Interaction):
         picked = self.values[0]
@@ -62,6 +64,7 @@ class ModelView(discord.ui.View):
         self.message: discord.Message | None = None
         self.add_item(ModelSelect("chat", ms.CHAT_CHOICES))
         self.add_item(ModelSelect("image", ms.IMAGE_CHOICES))
+        self.add_item(ModelSelect("size", ms.SIZE_CHOICES))
 
     async def on_timeout(self):
         for child in self.children:
@@ -77,7 +80,7 @@ class ModelsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @bridge.bridge_command(name="model", description="See or switch the bot's chat and image models")
+    @bridge.bridge_command(name="model", description="See or switch the bot's chat model, image model and image size")
     async def model(self, ctx):
         view = ModelView()
         msg = await ctx.respond(embed=build_embed(), view=view)

@@ -68,6 +68,7 @@ from cogs.chat_tools import (
     is_bot_owner as _is_bot_owner,
 )
 from chatbotfunc.profiles import get_user_context, extract_and_update
+from chatbotfunc.model_settings import ASPECTS
 from chatbotfunc.summarizer import summarizer_loop
 from chatbotfunc.debates import get_debate_context, mark_surfaced, debate_scanner_loop
 from chatbotfunc.morning_paper import morning_paper_loop
@@ -350,8 +351,9 @@ class ChatCog(commands.Cog):
             restart_requested = False
             for tc in tool_calls:
                 if tc.function.name == "generate_image":
-                    prompt = json.loads(tc.function.arguments).get("prompt", "")
-                    image_result = await generate_image(prompt)
+                    args = json.loads(tc.function.arguments)
+                    prompt = args.get("prompt", "")
+                    image_result = await generate_image(prompt, size=ASPECTS.get(args.get("aspect")))
                     if isinstance(image_result, bytes):
                         self.bot.channel_image_state.setdefault(channel.id, {})["last_generated"] = image_result
                         file = discord.File(io.BytesIO(image_result), filename="generated.png")
