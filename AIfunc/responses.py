@@ -1,5 +1,5 @@
 from chatbotfunc.utils import async_chat_completion
-from chatbotfunc.model_settings import aspect_for, get_chat_model, get_image_model, get_image_size
+from chatbotfunc.model_settings import aspect_for, get_chat_model, get_image_model, get_image_quality, get_image_size
 from chatbotfunc.usage import record_image
 from openai import OpenAI
 import openai
@@ -177,7 +177,7 @@ async def analyze_image(base64_image: str, instructions: str, message_history: l
 async def generate_image(prompt, model=None, size=None, quality=None, n=1):
     model = model or get_image_model()
     size = size or get_image_size()
-    quality = quality or os.getenv("IMAGE_QUALITY", "medium")
+    quality = quality or get_image_quality()
     try:
         response = await asyncio.to_thread(
             client.images.generate,
@@ -212,7 +212,7 @@ async def generate_image(prompt, model=None, size=None, quality=None, n=1):
 
 
 async def transform_image(image_bytes: bytes, instructions: str, size=None, quality=None):
-    quality = quality or os.getenv("IMAGE_QUALITY", "medium")
+    quality = quality or get_image_quality()
     try:
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         # Keep the source's orientation rather than the default size, so a

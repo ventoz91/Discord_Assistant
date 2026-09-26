@@ -1,4 +1,4 @@
-"""Runtime-switchable chat and image models and image size (`/model`).
+"""Runtime-switchable chat and image models, image size and quality (`/model`).
 
 An override picked in Discord is stored in data/model_settings.json and wins
 over MODEL_CHAT / IMAGE_MODEL from .env; "default" clears it. Only models in
@@ -39,14 +39,21 @@ SIZE_CHOICES = [
     ("1024x1536", "Portrait · ~1.5× cost on gpt-image-1/mini"),
     ("auto",      "Model picks the shape from the prompt"),
 ]
+# No "high": ~4× medium's cost on gpt-image-1/mini. .env can still set it.
+QUALITY_CHOICES = [
+    ("low",    "Cheapest · a fraction of medium's cost"),
+    ("medium", "Balanced · the usual setting"),
+]
 # Per-request shapes (AI tool / `/generate aspect:`), overriding the default size.
 ASPECTS = {"square": "1024x1024", "landscape": "1536x1024", "portrait": "1024x1536"}
 
-_CHOICES = {"chat": CHAT_CHOICES, "image": IMAGE_CHOICES, "size": SIZE_CHOICES}
+_CHOICES = {"chat": CHAT_CHOICES, "image": IMAGE_CHOICES, "size": SIZE_CHOICES,
+            "quality": QUALITY_CHOICES}
 _ENV = {
     "chat": ("MODEL_CHAT", "gpt-6-sol"),
     "image": ("IMAGE_MODEL", "gpt-image-1"),
     "size": ("IMAGE_SIZE", "1024x1024"),
+    "quality": ("IMAGE_QUALITY", "medium"),
 }
 
 
@@ -88,6 +95,10 @@ def get_image_size() -> str:
     return current("size")
 
 
+def get_image_quality() -> str:
+    return current("quality")
+
+
 def aspect_for(width: int, height: int) -> str:
     """The supported size closest in shape to width x height (transforms keep
     the source image's orientation instead of following the default size)."""
@@ -101,7 +112,7 @@ def aspect_for(width: int, height: int) -> str:
 
 def set_model(kind: str, model: str | None, set_by: str) -> None:
     """Store an override; model=None clears it back to the .env default.
-    For kind "size" the value is a size string (stored under "model" too)."""
+    For kinds "size"/"quality" the value is stored under "model" too."""
     if model is not None and model not in {m for m, _ in _CHOICES[kind]}:
         raise ValueError(f"{model} is not a selectable {kind} model")
     with _lock:

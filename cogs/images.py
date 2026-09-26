@@ -2,14 +2,13 @@ import discord
 from discord.ext import commands, bridge
 import logging
 import io
-import os
 import aiohttp
 import json
 import openai
 from AIfunc.responses import generate_image, transform_image, analyze_image
 from funfunc.image_search import main as search_image
 from chatbotfunc.utils import format_error_message, encode_discord_image
-from chatbotfunc.model_settings import ASPECTS, get_image_size
+from chatbotfunc.model_settings import ASPECTS, get_image_quality, get_image_size
 
 logger = logging.getLogger("bot.images")
 
@@ -31,7 +30,7 @@ class ImagesCog(commands.Cog):
             if not image_bytes:
                 raise ValueError("Failed to generate an image.")
             self.bot.channel_image_state.setdefault(ctx.channel.id, {})["last_generated"] = image_bytes
-            quality = os.getenv("IMAGE_QUALITY", "medium")
+            quality = get_image_quality()
             await ctx.respond(
                 f"Generated Image -- generation isn't free, keep that in mind (current settings: {size}, {quality} quality)\nPrompt: {prompt}",
                 file=discord.File(fp=io.BytesIO(image_bytes), filename="image.png"),

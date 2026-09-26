@@ -9,8 +9,8 @@ from chatbotfunc import usage
 logger = logging.getLogger("bot.models")
 
 _DEFAULT = "__default__"
-_TITLES = {"chat": "Chat model", "image": "Image model", "size": "Image size"}
-_ROWS = {"chat": 0, "image": 1, "size": 2}
+_TITLES = {"chat": "Chat model", "image": "Image model", "size": "Image size", "quality": "Image quality"}
+_ROWS = {"chat": 0, "image": 1, "size": 2, "quality": 3}
 
 
 def build_embed() -> discord.Embed:
@@ -65,6 +65,7 @@ class ModelView(discord.ui.View):
         self.add_item(ModelSelect("chat", ms.CHAT_CHOICES))
         self.add_item(ModelSelect("image", ms.IMAGE_CHOICES))
         self.add_item(ModelSelect("size", ms.SIZE_CHOICES))
+        self.add_item(ModelSelect("quality", ms.QUALITY_CHOICES))
 
     async def on_timeout(self):
         for child in self.children:
@@ -80,7 +81,7 @@ class ModelsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @bridge.bridge_command(name="model", description="See or switch the bot's chat model, image model and image size")
+    @bridge.bridge_command(name="model", description="See or switch the bot's chat model and image model, size and quality")
     async def model(self, ctx):
         view = ModelView()
         msg = await ctx.respond(embed=build_embed(), view=view)

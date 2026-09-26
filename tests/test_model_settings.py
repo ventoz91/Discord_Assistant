@@ -14,6 +14,7 @@ def store(tmp_path, monkeypatch):
     monkeypatch.setenv("MODEL_CHAT", "gpt-6-sol")
     monkeypatch.delenv("IMAGE_MODEL", raising=False)
     monkeypatch.delenv("IMAGE_SIZE", raising=False)
+    monkeypatch.delenv("IMAGE_QUALITY", raising=False)
     return path
 
 
@@ -68,7 +69,7 @@ async def test_picker_marks_current_and_offers_default():
     from cogs.models import ModelView, build_embed
     ms.set_model("image", "gpt-image-2.5-flare", "Knova")
     view = ModelView()
-    chat, image, size = view.children
+    chat, image, size, quality = view.children
     assert [o.value for o in chat.options if o.default] == ["gpt-6-sol"]
     assert [o.value for o in image.options if o.default] == ["gpt-image-2.5-flare"]
     assert image.options[-1].value == "__default__"
@@ -135,3 +136,14 @@ def test_generate_tool_offers_exactly_the_aspects():
     aspect = GENERATE_TOOL["function"]["parameters"]["properties"]["aspect"]
     assert set(aspect["enum"]) == set(ms.ASPECTS)
     assert "aspect" not in GENERATE_TOOL["function"]["parameters"]["required"]
+
+
+async def test_quality_override_reaches_image_calls_and_high_is_not_offered(monkeypatch):
+    seen = {}
+    responses = _fake_images(monkeypatch, seen)
+    assert ms.get_image_quality() == "medium"
+    with pytest.raises(ValueError):
+        ms.set_model("quality", "high", "Knova")
+    ms.set_model("quality", "low", "Knova")
+    await responses.generate_image("a cat")
+    assert seen["quality"] == "low"
