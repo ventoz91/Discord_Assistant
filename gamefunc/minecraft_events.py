@@ -36,6 +36,13 @@ _DEATH_KEYWORDS = (
     'experienced kinetic energy', 'froze to death', 'was struck by lightning',
 )
 
+# Named mobs (villagers, tamed pets, name-tagged mobs) get their deaths logged as
+# "Villager Villager['Farmer'/13681, l='ServerLevel[world]', x=..., y=..., z=...]
+# died, message: 'Farmer was killed'" — the quoted message trips the death
+# keywords, so a raid or an iron farm floods the channel. Player deaths never
+# take this form.
+_ENTITY_DEATH_RE = re.compile(r"\w+\['.*\] died, message: ")
+
 
 def _find_coords(line: str) -> tuple[str, str, str | None, str, str] | None:
     """Return (player, x, y_or_None, z, full_msg) if a chat line contains coords."""
@@ -70,6 +77,8 @@ def _classify(line: str) -> str | None:
     if not m_info:
         return None
     message = m_info.group(1).strip()
+    if _ENTITY_DEATH_RE.search(message):
+        return None
     for kw in _DEATH_KEYWORDS:
         if kw in message:
             return message
