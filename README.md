@@ -11,7 +11,7 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Debates & running jokes** — a background scanner periodically reviews recent channel history and tracks ongoing threads (arguments, running bits, unresolved questions); the bot brings one up naturally if it genuinely fits, with a cooldown so it doesn't repeat itself
 - **Auto-summarization** — a background task periodically condenses expiring messages into permanent summary documents before they vanish; effective memory is infinite; summaries survive indefinitely while raw message noise is cleaned up
 - **The Morning Paper** — an optional daily in-character recap posted to configured channels, summarizing the last 24 hours; skips quiet days
-- **SafeArr review report** — an optional daily post of how many downloads are waiting for review in [SafeArr](https://git.ventoz.ca/trevor/safearr), per show, with flagged count and oldest wait; skips days with an empty queue
+- **SafeArr review report** — an optional daily post of what needs a human in [SafeArr](https://git.ventoz.ca/trevor/safearr): downloads waiting for review per show (flagged count, oldest wait), files stuck before review, broken hardlinks, and library titles a rule says should be adopted; skips all-clear days. Plus an alert within minutes when a file gets stuck (e.g. a video ffmpeg can't decode). Never posts screenshots
 - **`!missed` / `/missed`** — catch-up summary of everything that happened in a channel since you last spoke there
 - **Reminders** — `!remind <duration> <text>` (compounds like `1h30m`) delivers an in-character reminder later; `!reminders` lists pending ones, `!unremind <id>` cancels one
 - **Image generation** — gpt-image models (switchable with `/model`) via `!generate` / `/generate`, or naturally in conversation ("draw me a crab")
@@ -274,6 +274,9 @@ MORNING_PAPER_MAX_TOKENS=600
 # Server-local hour at/after which the report posts.
 SAFEARR_REPORT_HOUR=9
 
+# How often to check for newly stuck files (alerts go to the same channel).
+SAFEARR_ALERT_MINUTES=5
+
 
 # ─────────────────────────────────────────────
 # Google Search
@@ -503,7 +506,7 @@ git pull
 docker compose up --build -d
 ```
 
-Bot state (ChromaDB, profiles, debates, reminders, Morning Paper and SafeArr report state, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
+Bot state (ChromaDB, profiles, debates, reminders, Morning Paper and SafeArr report/alert state, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
 
 ### Scoped SSH access
 
