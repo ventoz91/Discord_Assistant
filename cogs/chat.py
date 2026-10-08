@@ -72,6 +72,7 @@ from chatbotfunc.model_settings import ASPECTS
 from chatbotfunc.summarizer import summarizer_loop
 from chatbotfunc.debates import get_debate_context, mark_surfaced, debate_scanner_loop
 from chatbotfunc.morning_paper import morning_paper_loop
+from chatbotfunc.safearr_report import safearr_report_loop
 from gamefunc.minecraft_events import MinecraftEventWatcher
 from gamefunc.satisfactory_monitor import SatisfactoryMonitor
 
@@ -206,6 +207,7 @@ class ChatCog(commands.Cog):
         asyncio.create_task(summarizer_loop(os.getenv("MODEL_CHAT", "")))
         asyncio.create_task(debate_scanner_loop(self.bot, os.getenv("MODEL_CHAT", "")))
         asyncio.create_task(morning_paper_loop(self.bot))
+        asyncio.create_task(safearr_report_loop(self.bot))
 
         mc_channel = _channel_id('MINECRAFT_EVENTS_CHANNEL_ID')
         if mc_channel:
