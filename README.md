@@ -11,6 +11,7 @@ A personal Discord bot with GPT chat, persistent long-term memory, per-user prof
 - **Debates & running jokes** — a background scanner periodically reviews recent channel history and tracks ongoing threads (arguments, running bits, unresolved questions); the bot brings one up naturally if it genuinely fits, with a cooldown so it doesn't repeat itself
 - **Auto-summarization** — a background task periodically condenses expiring messages into permanent summary documents before they vanish; effective memory is infinite; summaries survive indefinitely while raw message noise is cleaned up
 - **The Morning Paper** — an optional daily in-character recap posted to configured channels, summarizing the last 24 hours; skips quiet days
+- **SafeArr review report** — an optional daily post of how many downloads are waiting for review in [SafeArr](https://git.ventoz.ca/trevor/safearr), per show, with flagged count and oldest wait; skips days with an empty queue
 - **`!missed` / `/missed`** — catch-up summary of everything that happened in a channel since you last spoke there
 - **Reminders** — `!remind <duration> <text>` (compounds like `1h30m`) delivers an in-character reminder later; `!reminders` lists pending ones, `!unremind <id>` cancels one
 - **Image generation** — gpt-image models (switchable with `/model`) via `!generate` / `/generate`, or naturally in conversation ("draw me a crab")
@@ -263,6 +264,18 @@ MORNING_PAPER_MAX_TOKENS=600
 
 
 # ─────────────────────────────────────────────
+# SafeArr review report
+# ─────────────────────────────────────────────
+
+# SafeArr base URL and the channel that gets the daily review-queue post. Either unset = disabled.
+# SAFEARR_URL=http://10.13.37.100:8383
+# SAFEARR_REPORT_CHANNEL_ID=123456789
+
+# Server-local hour at/after which the report posts.
+SAFEARR_REPORT_HOUR=9
+
+
+# ─────────────────────────────────────────────
 # Google Search
 # ─────────────────────────────────────────────
 
@@ -490,7 +503,7 @@ git pull
 docker compose up --build -d
 ```
 
-Bot state (ChromaDB, profiles, debates, reminders, Morning Paper state, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
+Bot state (ChromaDB, profiles, debates, reminders, Morning Paper and SafeArr report state, logs) is persisted in `./data` on the host via a bind mount and survives container restarts.
 
 ### Scoped SSH access
 
@@ -556,7 +569,7 @@ pip install -r requirements-dev.txt
 python -m pytest -q
 ```
 
-Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), the `REASONING_EFFORT` wrapper, reminders, profile and debate extraction (structured-output parsing), Morning Paper scheduling, Minecraft start/proxy handling and modded-via-systemd, model switching (`/model` overrides and picker), usage/cost recording, the blank-reply guard, the web panel (auth + login lockout, dashboard, deploy flow, store, templates), and both SSH gate scripts (allowed command shapes generated from the real `DockerComposeGameServer` / `RemoteUserService`, plus injection/traversal attempts).
+Covers history building, storage filters, retrieval decay, chat helpers, the agentic tool loop (scripted fake model), the `REASONING_EFFORT` wrapper, reminders, profile and debate extraction (structured-output parsing), Morning Paper scheduling, the SafeArr report formatter, Minecraft start/proxy handling and modded-via-systemd, model switching (`/model` overrides and picker), usage/cost recording, the blank-reply guard, the web panel (auth + login lockout, dashboard, deploy flow, store, templates), and both SSH gate scripts (allowed command shapes generated from the real `DockerComposeGameServer` / `RemoteUserService`, plus injection/traversal attempts).
 
 ## Commands
 
