@@ -53,6 +53,9 @@ _CATEGORIES: dict[str, list[tuple[str, str]]] = {
         ("!start_dragonwilds  ·  /dragonwilds start", "Start Dragonwilds server"),
         ("!stop_dragonwilds  ·  /dragonwilds stop",   "Stop Dragonwilds server"),
         ("!dragonwilds_status  ·  /dragonwilds status", "Dragonwilds status"),
+        ("!start_factorio  ·  /factorio start",     "Start Factorio server"),
+        ("!stop_factorio  ·  /factorio stop",       "Stop Factorio server"),
+        ("!factorio_status  ·  /factorio status",   "Factorio status"),
     ],
     "🎲  MISC": [
         ("!model  ·  /model",        "See or switch models, image size and quality"),

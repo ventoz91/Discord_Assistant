@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from gamefunc.dragonwilds import DragonwildsServer
 from gamefunc.emucoach import EmucoachServer
+from gamefunc.factorio import FactorioServer
 from gamefunc.minecraft import MinecraftServer
 from gamefunc.palworld import PalworldServer
 from gamefunc.satisfactory import SatisfactoryServer
@@ -24,13 +25,14 @@ logger = logging.getLogger("bot.webpanel")
 router = APIRouter()
 templates = Jinja2Templates(directory="webpanel/templates")
 
-# Satisfactory/Palworld/Dragonwilds/Emucoach read their SSH/RCON config
+# Satisfactory/Palworld/Dragonwilds/Factorio/Emucoach read their SSH/RCON config
 # lazily on every call (see gamefunc/compose_server.py and each class), so a
 # single process-lifetime instance is safe here and avoids e.g. Satisfactory
 # re-fetching an auth token on every request.
 _sf = SatisfactoryServer()
 _pw = PalworldServer()
 _dw = DragonwildsServer()
+_fa = FactorioServer()
 _emucoach = EmucoachServer()
 
 # MinecraftServer reads its RCON/SSH settings once in __init__ (unlike the
@@ -45,6 +47,7 @@ FIXED_SERVERS = [
     {"id": "satisfactory",       "label": "Satisfactory",         "kind": "satisfactory"},
     {"id": "palworld",           "label": "Palworld",             "kind": "palworld"},
     {"id": "dragonwilds",        "label": "RuneScape: Dragonwilds", "kind": "dragonwilds"},
+    {"id": "factorio",           "label": "Factorio",              "kind": "factorio"},
     {"id": "emucoach",           "label": "EmuCoach (WoW)",        "kind": "emucoach"},
 ]
 
@@ -119,6 +122,10 @@ async def _status(entry: dict) -> dict:
             # every start (see gamefunc/dragonwilds.py).
             out["online"] = await _dw.is_running()
             out["connect"] = os.getenv("DRAGONWILDS_CONNECT_URL", "")
+        elif kind == "factorio":
+            # No redeploy: pinned image tag (see gamefunc/factorio.py).
+            out["online"] = await _fa.is_running()
+            out["connect"] = os.getenv("FACTORIO_CONNECT_URL", "")
         elif kind == "emucoach":
             detail = await _emucoach.server_status()
             out["detail"] = detail
@@ -144,6 +151,9 @@ async def _start(entry: dict) -> str:
     if kind == "dragonwilds":
         ok = await _dw.start()
         return "Start requested." if ok else "Failed to start — check SSH/Docker config."
+    if kind == "factorio":
+        ok = await _fa.start()
+        return "Start requested." if ok else "Failed to start — check SSH/Docker config."
     if kind == "emucoach":
         return await _emucoach.start_server()
     return "Unsupported action."
@@ -162,6 +172,9 @@ async def _stop(entry: dict) -> str:
         return "Stop requested."
     if kind == "dragonwilds":
         await _dw.stop()
+        return "Stop requested."
+    if kind == "factorio":
+        await _fa.stop()
         return "Stop requested."
     if kind == "emucoach":
         return await _emucoach.stop_server()

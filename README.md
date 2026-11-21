@@ -381,6 +381,13 @@ DRAGONWILDS_CONNECT_URL=dragonwilds.example.com:7778
 # Leave blank to disable both.
 DRAGONWILDS_CHANNEL_ID=
 
+# Factorio — same SSH+Docker shape as Dragonwilds. No redeploy: the compose service
+# pins an exact image tag, so version bumps are a manual tag edit on the host.
+FACTORIO_SSH_HOST=192.168.0.x
+FACTORIO_SSH_USER=admin
+FACTORIO_COMPOSE_DIR=/home/data
+FACTORIO_CONNECT_URL=play.example.com:34197
+
 
 # ─────────────────────────────────────────────
 # Web Admin Panel (webpanel/) — see "Web Panel" section below
@@ -643,6 +650,9 @@ Most commands work as both `!prefix` and `/slash`. Exceptions are noted.
 | `!start_dragonwilds` | `/dragonwilds start` | Start the RuneScape: Dragonwilds server |
 | `!stop_dragonwilds` | `/dragonwilds stop` | Stop the RuneScape: Dragonwilds server |
 | `!dragonwilds_status` | `/dragonwilds status` | Check Dragonwilds server status |
+| `!start_factorio` | `/factorio start` | Start the Factorio server |
+| `!stop_factorio` | `/factorio stop` | Stop the Factorio server (saves the world) |
+| `!factorio_status` | `/factorio status` | Check Factorio server status |
 | — | `/panel` | Get the link to the web admin panel (`WEBPANEL_URL`) |
 
 ### Misc

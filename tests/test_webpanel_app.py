@@ -85,7 +85,7 @@ def test_logout_requires_login_again(client):
 def test_dashboard_lists_current_servers(client):
     client.post("/login", data={"username": "trevor", "password": "hunter2"})
     text = client.get("/").text
-    for label in ("Minecraft — Modded", "RuneScape: Dragonwilds", "Palworld"):
+    for label in ("Minecraft — Modded", "RuneScape: Dragonwilds", "Palworld", "Factorio"):
         assert label in text
     for gone in ("Valheim", "Enshrouded"):
         assert gone not in text
@@ -104,6 +104,25 @@ async def test_dragonwilds_status_start_stop(monkeypatch):
     entry = rs._find("dragonwilds")
     status = await rs._status(entry)
     assert status["online"] is True and status["connect"] == "10.0.0.2:7778"
+    assert status["redeployable"] is False
+    assert await rs._start(entry) == "Start requested."
+    assert await rs._stop(entry) == "Stop requested."
+    assert calls == ["start", "stop"]
+
+
+async def test_factorio_status_start_stop(monkeypatch):
+    calls = []
+
+    class FakeFA:
+        async def is_running(self): return True
+        async def start(self): calls.append("start"); return True
+        async def stop(self): calls.append("stop"); return True
+
+    monkeypatch.setattr(rs, "_fa", FakeFA())
+    monkeypatch.setenv("FACTORIO_CONNECT_URL", "play.example.com:34197")
+    entry = rs._find("factorio")
+    status = await rs._status(entry)
+    assert status["online"] is True and status["connect"] == "play.example.com:34197"
     assert status["redeployable"] is False
     assert await rs._start(entry) == "Start requested."
     assert await rs._stop(entry) == "Stop requested."

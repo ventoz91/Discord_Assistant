@@ -9,12 +9,18 @@ from gamefunc.status_panel import StatusPanel
 from gamefunc.emucoach import EmucoachServer
 from gamefunc.dragonwilds import DragonwildsServer
 from gamefunc.dragonwilds_panel import DragonwildsPanel
+from gamefunc.factorio import FactorioServer
 
 logger = logging.getLogger("bot.servers")
 
 
 def _connect_line() -> str:
     connect = os.getenv('DRAGONWILDS_CONNECT_URL', '').strip()
+    return f'\nConnect: `{connect}`' if connect else ''
+
+
+def _factorio_connect_line() -> str:
+    connect = os.getenv('FACTORIO_CONNECT_URL', '').strip()
     return f'\nConnect: `{connect}`' if connect else ''
 
 
@@ -38,11 +44,13 @@ async def _notify_dragonwilds_channel(bot, text: str):
 class ServersCog(commands.Cog):
     emucoach = discord.SlashCommandGroup("emucoach", "EmuCoach WoW server commands")
     dragonwilds = discord.SlashCommandGroup("dragonwilds", "RuneScape: Dragonwilds server commands")
+    factorio = discord.SlashCommandGroup("factorio", "Factorio server commands")
 
     def __init__(self, bot):
         self.bot = bot
         self._emucoach = EmucoachServer()
         self._dragonwilds = DragonwildsServer()
+        self._factorio = FactorioServer()
         self._dragonwilds_panel_posted = False
 
     @commands.Cog.listener()
@@ -213,6 +221,62 @@ class ServersCog(commands.Cog):
     async def dragonwilds_status_slash(self, ctx):
         await ctx.defer()
         await ctx.respond(await self._dragonwilds_status())
+
+    # ── Factorio ──────────────────────────────────────────────────────────────
+
+    async def _factorio_start(self) -> str:
+        if not os.getenv('FACTORIO_SSH_HOST', ''):
+            return "⚙️ Factorio isn't configured — set FACTORIO_SSH_HOST in .env."
+        if await self._factorio.is_running():
+            return f"🟢 Factorio is already online.{_factorio_connect_line()}"
+        if not await self._factorio.start():
+            return "❌ Couldn't start Factorio — check the bot log for SSH/Docker errors."
+        if not await self._factorio.wait_until_ready():
+            return "🟡 Factorio is starting but hasn't come online yet — check `/factorio status` in a minute."
+        return f"🟢 Factorio started.{_factorio_connect_line()}"
+
+    async def _factorio_stop(self) -> str:
+        if not os.getenv('FACTORIO_SSH_HOST', ''):
+            return "⚙️ Factorio isn't configured — set FACTORIO_SSH_HOST in .env."
+        if not await self._factorio.is_running():
+            return "🔴 Factorio is already stopped."
+        await self._factorio.stop()
+        if not await self._factorio.wait_until_stopped():
+            return "🟡 Stop requested but Factorio hasn't gone down yet — check `/factorio status` in a minute."
+        return "🔴 Factorio stopped (world saved)."
+
+    async def _factorio_status(self) -> str:
+        if not os.getenv('FACTORIO_SSH_HOST', ''):
+            return "⚙️ Factorio isn't configured — set FACTORIO_SSH_HOST in .env."
+        running = await self._factorio.is_running()
+        return f"🟢 Online.{_factorio_connect_line()}" if running else "🔴 Offline."
+
+    @commands.command(name="start_factorio")
+    async def start_factorio_prefix(self, ctx):
+        await ctx.send(await self._factorio_start())
+
+    @commands.command(name="stop_factorio")
+    async def stop_factorio_prefix(self, ctx):
+        await ctx.send(await self._factorio_stop())
+
+    @commands.command(name="factorio_status")
+    async def factorio_status_prefix(self, ctx):
+        await ctx.send(await self._factorio_status())
+
+    @factorio.command(name="start", description="Start the Factorio server")
+    async def factorio_start(self, ctx):
+        await ctx.defer()
+        await ctx.respond(await self._factorio_start())
+
+    @factorio.command(name="stop", description="Stop the Factorio server (saves the world)")
+    async def factorio_stop(self, ctx):
+        await ctx.defer()
+        await ctx.respond(await self._factorio_stop())
+
+    @factorio.command(name="status", description="Check the Factorio server status")
+    async def factorio_status_slash(self, ctx):
+        await ctx.defer()
+        await ctx.respond(await self._factorio_status())
 
 
 def setup(bot):
